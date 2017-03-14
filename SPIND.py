@@ -100,6 +100,8 @@ def calc_rotation_matrix(q1, q2, ref_q1, ref_q2):
     """
     ref_nv = np.cross(ref_q1, ref_q2) 
     q_nv = np.cross(q1, q2)
+    if min(norm(ref_nv), norm(q_nv)) == 0.:  # avoid 0 degree including angle
+        return np.identity(3)
     axis = np.cross(ref_nv, q_nv)
     angle = rad2deg(acos(ref_nv.dot(q_nv) / (norm(ref_nv) * norm(q_nv))))
     R1 = axis_angle_to_rotation_matrix(axis, angle)
