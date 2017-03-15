@@ -107,8 +107,10 @@ def calc_rotation_matrix(q1, q2, ref_q1, ref_q2):
     R1 = axis_angle_to_rotation_matrix(axis, angle)
     rot_ref_q1, rot_ref_q2 = R1.dot(ref_q1), R1.dot(ref_q2)  # rotate ref_q1,2 plane to q1,2 plane
 
-    angle1 = rad2deg(acos(q1.dot(rot_ref_q1) / (norm(rot_ref_q1) * norm(q1))))
-    angle2 = rad2deg(acos(q2.dot(rot_ref_q2) / (norm(rot_ref_q2) * norm(q2))))
+    cos1 = max(min(q1.dot(rot_ref_q1) / (norm(rot_ref_q1) * norm(q1)), 1.), -1.)  # avoid math domain error
+    cos2 = max(min(q2.dot(rot_ref_q2) / (norm(rot_ref_q2) * norm(q2)), 1.), -1.)
+    angle1 = rad2deg(acos(cos1))
+    angle2 = rad2deg(acos(cos2))
     angle = (angle1 + angle2) / 2.
     axis = np.cross(rot_ref_q1, q1)
     R2 = axis_angle_to_rotation_matrix(axis, angle)
@@ -322,5 +324,5 @@ if __name__ == '__main__':
                 data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 'spind_indexing-%d.txt' % i))), axis=0)
         np.savetxt(os.path.join(output_dir, prefix + '-spind.txt'),
                    data, fmt="%6d %.2f %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
-        overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0])
-        logging.info('Overall indexing rate: %.2f%%' % overall_indexing_rate)
+        overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
+        print('Overall indexing rate: %.2f%%' % overall_indexing_rate)
