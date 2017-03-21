@@ -155,9 +155,11 @@ def eval_solution(R, qs, A_inv, eval_tol=0.25):
     HKL = A_inv.dot(R_inv.dot(qs.T)).T
     rHKL = np.rint(HKL)
     eHKL = np.abs(HKL - rHKL)
-    hit = np.max(eHKL, axis=1) < eval_tol
-    score = float(hit.sum()) / len(qs)
-    return score
+    pair_ids = np.where(np.max(eHKL, axis=1) < eval_tol)[0]  # indices of matched peaks
+    n_match = len(pair_ids)
+    n_peak = len(qs)
+    match_rate = float(n_match) / float(n_peak)
+    return match_rate, n_match, HKL, rHKL, pair_ids
 
 
 def index(peaks, table, A, A_inv, pair_tol=[3.E-3, 1.0], eval_tol=0.25):
@@ -174,7 +176,11 @@ def index(peaks, table, A, A_inv, pair_tol=[3.E-3, 1.0], eval_tol=0.25):
     Returns:
         TYPE: Description
     """
-    max_score = 0.
+    max_match_rate = 0.
+    max_n_match = 0
+    best_HKL = None  # decimal Miller indices
+    best_rHKL = None   # interger Miller indices
+    best_pair_ids = None  # indices of matched peaks
     best_R = np.identity(3)
     qs = []  # q vectors 
     for i in range(len(peaks)):
@@ -193,13 +199,19 @@ def index(peaks, table, A, A_inv, pair_tol=[3.E-3, 1.0], eval_tol=0.25):
         for match_id in match_ids:
             hkl1, hkl2 = table[match_id][0:3], table[match_id][3:6]
             ref_q1, ref_q2 = A.dot(hkl1), A.dot(hkl2)
-
             R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
-            score = eval_solution(R, qs, A_inv, eval_tol=eval_tol)
-            if score > max_score:
-                max_score = score
+            match_rate, n_match, HKL, rHKL, pair_ids = eval_solution(R, qs, A_inv, eval_tol=eval_tol)
+            if match_rate > max_match_rate:
+                max_match_rate, max_n_match = match_rate, n_match
+                best_HKL, best_rHKL, best_pair_ids = HKL, rHKL, pair_ids
                 best_R = R
-    return max_score, best_R
+    if best_HKL is None:
+        eXYZ = np.ones((len(qs), 3), dtype=np.float32)
+    else:
+        eXYZ = np.abs(A.dot(best_HKL.T) - A.dot(best_rHKL.T)).T  # Fourier space error between peaks and predicted spots
+    dist = np.sqrt(eXYZ.dot(eXYZ.T).diagonal())
+    best_match_dist = np.mean(dist[best_pair_ids])  # average distance between mached peaks and the correspoding predicted spots
+    return best_R, max_match_rate, max_n_match, best_match_dist
 
 
 def calc_abc_star(R, A):
@@ -296,19 +308,20 @@ if __name__ == '__main__':
         else:
             logging.info('Rank %d working on event %04d: %s' % (rank, event_id, filepath))
             peaks = load_peaks(filepath)
-            score, R = index(peaks, table, A, A_inv, pair_tol=pair_tol, eval_tol=eval_tol)
+            R, match_rate, n_match, match_dist = index(peaks, table, A, A_inv, pair_tol=pair_tol, eval_tol=eval_tol)
             a_star, b_star, c_star = calc_abc_star(R, A)
-            logging.info('Event %04d, score %.2f' % (event_id, score))
+            logging.info('Event %04d, match rate %.2f' % (event_id, match_rate))
             logging.info('abc star: %s' % str(R.dot(A)*10.))
             _c = 1E10  # convert to per meter
-            output.write('%6d %.2f %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
-                         % (job[i], score, a_star[0]*_c, a_star[1]*_c, a_star[2]*_c,
-                                      b_star[0]*_c, b_star[1]*_c, b_star[2]*_c,
-                                      c_star[0]*_c, c_star[1]*_c, c_star[2]*_c))
-            if score >= 0.5:
+            output.write('%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
+                         % (job[i], match_rate, n_match, match_dist,
+                            a_star[0]*_c, a_star[1]*_c, a_star[2]*_c,
+                            b_star[0]*_c, b_star[1]*_c, b_star[2]*_c,
+                            c_star[0]*_c, c_star[1]*_c, c_star[2]*_c))
+            if match_rate >= 0.5:
                 nb_indexed += 1
                 indexed_events.append(event_id)
-            print('Event %d nb_peak %d,  match score %f' % (job[i], len(peaks), score))
+            print('Event %d nb_peak %d, match rate %.2f, match dist: %.2e' % (job[i], len(peaks), match_rate, match_dist))
         logging.info('Rank %d indexing rate: %.2f%%' % (rank, nb_indexed*100/(i+1)))
     print('Rank %d has %d indexed: %s with match score higher than 50%%' % (rank, nb_indexed, str(indexed_events)))
     output.close()
@@ -323,6 +336,6 @@ if __name__ == '__main__':
             else:
                 data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 'spind_indexing-%d.txt' % i))), axis=0)
         np.savetxt(os.path.join(output_dir, prefix + '-spind.txt'),
-                   data, fmt="%6d %.2f %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
+                   data, fmt="%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
         overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
         print('Overall indexing rate: %.2f%%' % overall_indexing_rate)
