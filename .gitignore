@@ -1,6 +1,7 @@
 # Extra directories
 output/
-data/
+peak_lists/
+table/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
