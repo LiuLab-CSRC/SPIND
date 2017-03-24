@@ -347,20 +347,16 @@ if __name__ == '__main__':
             logging.info('Event %04d, match rate %.2f' % (event_id, match_rate))
             logging.info('A: %s' % str(A*10.))
             _c = 1E10  # convert to per meter
-            output.write('%6d %.2f %4d\
-                          %.4E \
-                          %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\
-                          %.4E \
-                          %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
-                         % (job[i], match_rate, nb_pairs, 
-                            pair_dist,
-                            A[0,0]*_c, A[0,1]*_c, A[0,2]*_c,
-                            A[1,0]*_c, A[1,1]*_c, A[1,2]*_c,
-                            A[2,0]*_c, A[2,1]*_c, A[2,2]*_c,
-                            pair_dist_refined,
-                            A_refined[0,0]*_c, A_refined[0,1]*_c, A_refined[0,2]*_c,
-                            A_refined[1,0]*_c, A_refined[1,1]*_c, A_refined[1,2]*_c,
-                            A_refined[2,0]*_c, A_refined[2,1]*_c, A_refined[2,2]*_c))
+            if pair_dist_refined >= pair_dist:
+                best_A = A 
+            else:
+                best_A = A_refined
+            output.write('%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
+                         % (job[i], match_rate, nb_pairs, pair_dist,
+                            best_A[0,0]*_c, best_A[1,0]*_c, best_A[2,0]*_c,
+                            best_A[0,1]*_c, best_A[1,1]*_c, best_A[2,1]*_c,
+                            best_A[0,2]*_c, best_A[1,2]*_c, best_A[2,2]*_c,
+                            pair_dist_refined))
             if match_rate >= 0.5:
                 nb_indexed += 1
                 indexed_events.append(event_id)
@@ -380,10 +376,6 @@ if __name__ == '__main__':
             else:
                 data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 'spind_indexing-%d.txt' % i))), axis=0)
         np.savetxt(os.path.join(output_dir, prefix + '-spind.txt'),
-                   data, fmt="%6d %.2f %4d \
-                              %.4E \
-                              %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\
-                              %.4E \
-                              %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n")
+                   data[:,0:-1], fmt="%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
         overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
         print('Overall indexing rate: %.2f%%' % overall_indexing_rate)
