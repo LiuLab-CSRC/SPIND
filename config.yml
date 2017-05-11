@@ -1,0 +1,6 @@
+resolution cutoff: 4.5E-10  # 2.5A cutoff
+cell parameters: [103.45,50.28,69.380,90.00,109.67,90.00]  # in A and degree
+centering: 'C'  # C type centering
+wave length : 1.306098E-10  # in meters
+detector distance : 136.4028E-3  # in meters
+pixel size : 110.E-6  # in meters
