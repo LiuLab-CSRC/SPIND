@@ -127,7 +127,7 @@ if __name__ == '__main__':
   hkls = hkls[valid_idx]  
 
   # generate table
-  table = h5py.File('table.h5') 
+  table = h5py.File(table_file) 
 
   qs = A.dot(hkls.T).T
   lens = []
