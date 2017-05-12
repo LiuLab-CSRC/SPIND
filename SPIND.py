@@ -155,17 +155,20 @@ def axis_angle_to_rotation_matrix(axis, angle):
   return np.asarray(R)
 
 
-def eval_solution(R, qs, A0_inv, eval_tol=0.25):
-  """Calculate match rate for the given rotation matrix
+def eval_solution(R, qs, A0_inv, 
+                  eval_tol=0.25,
+                  centering=None):
+  """Evaluate the solution by match rate and centering restraint
   
-  argv:
-    R (TYPE): Rotation matrix
-    qs (TYPE): Peak coorinates in fourier space
-    A0_inv (TYPE): Description
-    eval_tol (float, optional): hkl tolerence
+  Args:
+      R (TYPE): Rotation matrix
+      qs (TYPE): Peak coorinates in fourier space
+      A0_inv (TYPE): Description
+      eval_tol (float, optional): hkl tolerence
+      centering (None, optional): centering type
   
   Returns:
-    TYPE: Description
+      TYPE: Description
   """
   R_inv = np.linalg.inv(R)
   hkls = A0_inv.dot(R_inv.dot(qs.T)).T
@@ -175,7 +178,27 @@ def eval_solution(R, qs, A0_inv, eval_tol=0.25):
   nb_pairs = len(pair_ids)
   nb_peaks = len(qs)
   match_rate = float(nb_pairs) / float(nb_peaks)
-  return match_rate, nb_pairs, hkls, rhkls, pair_ids
+  # centering score
+  if centering is None or nb_pairs == 0:
+    centering_score = 0.
+  elif centering == 'C':  # h+k=2n
+    pair_hkls = rhkls.astype(np.int16)[pair_ids]
+    nb_C_peaks = ((pair_hkls[:,0] + pair_hkls[:,1]) % 2 == 0).sum()
+    C_ratio = float(nb_C_peaks) / float(nb_pairs)
+    centering_score = 2 * C_ratio - 1.
+  # total evaluation score
+  score = 0.1 * centering_score + match_rate
+
+  results = {
+    'match_rate': match_rate,
+    'nb_pairs': nb_pairs,
+    'hkls': hkls,
+    'rhkls': rhkls,
+    'pair_ids': pair_ids,
+    'centering_score': centering_score,
+    'score': score,
+  }
+  return results
 
 
 def calc_angle(v1, v2):
@@ -189,7 +212,10 @@ def calc_angle(v1, v2):
 
 
 def index(peaks, table, A0, A0_inv, 
-          pair_tol=(3.E7, 1.0), eval_tol=0.25, refine_cycle=10):
+          pair_tol=(3.E7, 1.0), 
+          eval_tol=0.25, 
+          refine_cycle=10,
+          centering=None):
   """Summary
   
   argv:
@@ -205,6 +231,8 @@ def index(peaks, table, A0, A0_inv,
     TYPE: Description
   """
   match_rate = 0.
+  centering_score = 0.
+  score = 0.
   nb_pairs = 0  # number of matched pairs
   hkls = None  # decimal Miller indices
   rhkls = None   # interger Miller indices
@@ -214,7 +242,6 @@ def index(peaks, table, A0, A0_inv,
   qs = det2fourier(peaks_xy, wave_length, detector_distance)
 
   pair_pool = list(combinations(range(5), 2))
-  print(table['LA'][:10])
   for i in range(len(pair_pool)):
     pair = pair_pool[i]
     q1, q2 = qs[pair[0]], qs[pair[1]]
@@ -231,11 +258,16 @@ def index(peaks, table, A0, A0_inv,
       hkl2 = table['hkl2'][match_id]
       ref_q1, ref_q2 = A0.dot(hkl1), A0.dot(hkl2)
       _R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
-      _match_rate, _nb_pairs, _hkls, _rhkls, _pair_ids = eval_solution(
-        _R, qs, A0_inv, eval_tol=eval_tol)
-      if _match_rate > match_rate:
-        match_rate, nb_pairs = _match_rate, _nb_pairs
-        hkls, rhkls, pair_ids = _hkls, _rhkls, _pair_ids
+      eval_results = eval_solution(_R, qs, A0_inv, 
+        eval_tol=eval_tol, centering=centering)
+      if eval_results['score'] > score:
+        score = eval_results['score']
+        match_rate = eval_results['match_rate']
+        nb_pairs = eval_results['nb_pairs']
+        hkls = eval_results['hkls']
+        rhkls = eval_results['rhkls']
+        pair_ids = eval_results['pair_ids']
+        centering_score = eval_results['centering_score']
         R = _R
   if hkls is None:
     eXYZs = np.ones((len(qs), 3), dtype=np.float32)
@@ -250,7 +282,18 @@ def index(peaks, table, A0, A0_inv,
     pair_dist_refined, A_refined = refine(A, rhkls, qs, pair_ids, refine_cycle)  # refine A matrix with matched pairs to minimize norm(AH-q)
   logging.info("After refinement, delta_A %.3e, dist %.3e -> %.3e" % 
          (norm(A_refined - A), pair_dist, pair_dist_refined))
-  return A, match_rate, nb_pairs, pair_dist, A_refined, pair_dist_refined
+
+  index_results = {
+    'A': A,
+    'match_rate': match_rate,
+    'nb_pairs': nb_pairs,
+    'pair_dist': pair_dist,
+    'A_refined': A_refined,
+    'pair_dist_refined': pair_dist_refined,
+    'centering_score': centering_score,
+    'score': score,
+  }
+  return index_results
 
 
 def refine(A, hkls, qs, pair_ids, refine_cycle):
@@ -316,6 +359,9 @@ if __name__ == '__main__':
   pixel_size = config['pixel size'] 
   cell_parameters = np.asarray(config['cell parameters']) 
   cell_parameters[:3] *= 1E-10  # convert to meters
+  centering = config['centering']
+
+  # calculate reference transform matrix
   A0 = calc_transform_matrix(cell_parameters)
   A0_inv = np.linalg.inv(A0)
 
@@ -380,32 +426,45 @@ if __name__ == '__main__':
       logging.info('Rank %d working on event %04d: %s' % 
         (rank, event_id, filepath))
       peaks = load_peaks(filepath)
-      A, match_rate, nb_pairs, pair_dist, A_refined, pair_dist_refined = index(
+      results = index(
         peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
-        refine_cycle=refine_cycle
+        refine_cycle=refine_cycle, centering=centering
       )
-      logging.info('Event %04d, match rate %.2f' % (event_id, match_rate))
-      logging.info('A: %s' % str(A))
-      if pair_dist_refined >= pair_dist:
-        best_A = A 
-        best_dist = pair_dist
+      logging.info('Event %04d, match rate %.2f' % 
+        (event_id, results['match_rate']))
+      logging.info('A: %s' % str(results['A']))
+      if results['pair_dist_refined'] >= results['pair_dist']:
+        best_A = results['A'] 
+        best_dist = results['pair_dist']
       else:
-        best_A = A_refined
-        best_dist = pair_dist_refined
+        best_A = results['A_refined']
+        best_dist = results['pair_dist_refined']
       output.write('%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
-             % (job[i], match_rate, nb_pairs, best_dist,
+             % (job[i], 
+              results['match_rate'], 
+              results['nb_pairs'], 
+              best_dist,
               best_A[0,0], best_A[1,0], best_A[2,0],
               best_A[0,1], best_A[1,1], best_A[2,1],
               best_A[0,2], best_A[1,2], best_A[2,2],
-              pair_dist))
-      if match_rate >= 0.5:
+              results['pair_dist']))
+      if results['match_rate'] >= 0.5 and \
+         results['centering_score'] >= 0.5:
         nb_indexed += 1
         indexed_events.append(event_id)
-      print('Event %d nb_peak %d, match rate %.2f, pair dist: %.3e -> %.3e' 
-          % (job[i], len(peaks), match_rate, pair_dist, pair_dist_refined))
+      print('=' * 40)
+      print('Event: %d' % job[i])
+      print('# of peaks: %d' % len(peaks))
+      print('match rate: %.2f' % results['match_rate'])
+      print('pair dist: %.3E' % results['pair_dist'])
+      print('refined pair dist: %.3E' % results['pair_dist_refined'])
+      print('centering score: %.2f' % results['centering_score'])
+      print('total score: %.2f' % results['score'])
+      print('=' * 40)
     logging.info('Rank %d indexing rate: %.2f%%' % (rank, nb_indexed*100/(i+1)))
-  print('Rank %d has %d indexed: %s with match score higher than 50%%' % 
-    (rank, nb_indexed, str(indexed_events)))
+  print('Rank %d: %d indexed with match rate > 0.5 and centering score > 0.5' % 
+    (rank, nb_indexed))
+  print('Indexed event: ', indexed_events)
   output.close()
 
   comm.barrier()
