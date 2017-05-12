@@ -113,8 +113,14 @@ if __name__ == '__main__':
   hkls = hkls[valid_idx]  
 
   # apply systematic absence
-  if centering == 'C':
-    valid_idx = hkls.sum(axis=1) % 2 == 0
+  if centering == 'I':  # h+k+l == 2n
+    valid_idx = (hkls.sum(axis=1) % 2 == 0)
+  elif centering == 'C':  # h+k == 2n
+    valid_idx = ((hkls[:,0] + hkls[:,1]) % 2 == 0)
+  elif centering == 'A':  # h+k == 2n
+    valid_idx = ((hkls[:,1] + hkls[:,2]) % 2 == 0)
+  elif centering == 'B':  # h+k == 2n
+    valid_idx = ((hkls[:,0] + hkls[:,2]) % 2 == 0)
   else:
     raise NotImplementedError('%s not implemented' %
       centering)
