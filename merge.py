@@ -15,6 +15,7 @@ Options:
   --det-dist=det_dist               Detector distance in meters [default: 92.40E-3]. 
   --min-match-rate=min_match_rate   Min match rate accepted while merging [default: 0.5].
   --eval-tol=eval_tol               HKL tolerence between observed peaks and predicted spots [default: 0.25].
+  --hkl-diag                        Output eHKL for debug.
 """
 
 import numpy as np 
@@ -138,8 +139,10 @@ if __name__ == '__main__':
     eval_tol = float(argv['--eval-tol'])
     output_file = argv['--output']
     verbose = argv['--verbose']
+    hkl_diag = argv['--hkl-diag']
 
     nb_merge = 0  # number of merged pattern
+    eHKLs = []
     peak_files = glob('%s/*.txt' % peak_dir)
     reflection_dict = {}
 
@@ -191,6 +194,7 @@ if __name__ == '__main__':
             HKL = get_hkl(qs, A=A)  # decimal hkls
             rHKL = np.round(HKL)
             eHKL = np.abs(HKL - rHKL)
+            eHKLs += eHKL.tolist()
             pair_ids = np.where(eHKL.max(axis=1) < eval_tol)[0]
             nb_pair = len(pair_ids)
             if float(nb_pair) / float(peak_data.shape[0]) < min_match_rate:
@@ -223,3 +227,7 @@ if __name__ == '__main__':
     # write to hkl file
     print('write hkl to %s' % output_file)
     write2hkl(reflection_dict, point_group, output_file)
+
+    # write eHKLs if specified
+    if hkl_diag:
+        np.savetxt('eHKL.txt', eHKLs, fmt='%.3f %.3f %.3f')
