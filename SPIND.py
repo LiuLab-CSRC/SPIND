@@ -86,13 +86,24 @@ def deg2rad(deg):
   return float(deg) / 180. * pi
 
 
-def calc_transform_matrix(cell_parameters):
-  a, b, c = np.asarray(cell_parameters[0:3])
-  al, be, ga = cell_parameters[3:]
-  # monoclinic
-  av = [a, 0., 0.]
-  bv = [0, b, 0.]
-  cv = [c*cos(deg2rad(be)), 0, c*sin(deg2rad(be))]
+def calc_transform_matrix(cell_param, 
+                          lattice_type=None):
+  a, b, c = np.asarray(cell_param[0:3])
+  al, be, ga = cell_param[3:]
+  if lattice_type == 'monoclinic':
+    av = [a, 0., 0.]
+    bv = [0, b, 0.]
+    cv = [c*cos(deg2rad(be)), 0, c*sin(deg2rad(be))]
+  elif lattice_type == 'orthorhombic':
+    av = [a, 0., 0.]
+    bv = [0., b, 0.]
+    cv = [0., 0., c]
+    assert al == 90.
+    assert be == 90.
+    assert ga == 90.
+  else:
+    raise NotImplementedError('%s not implemented yet' %
+      lattice_type)
   a_star = (np.cross(bv, cv)) / ((np.cross(bv, cv).dot(av)))
   b_star = (np.cross(cv, av)) / ((np.cross(cv, av).dot(bv)))
   c_star = (np.cross(av, bv)) / ((np.cross(av, bv).dot(cv)))
@@ -157,7 +168,8 @@ def axis_angle_to_rotation_matrix(axis, angle):
 
 def eval_solution(R, qs, A0_inv, 
                   eval_tol=0.25,
-                  centering=None):
+                  centering=None,
+                  centering_factor=0.0):
   """Evaluate the solution by match rate and centering restraint
   
   Args:
@@ -166,6 +178,7 @@ def eval_solution(R, qs, A0_inv,
       A0_inv (TYPE): Description
       eval_tol (float, optional): hkl tolerence
       centering (None, optional): centering type
+      centering_factor (float, optional): centering score factor
   
   Returns:
       TYPE: Description
@@ -179,15 +192,17 @@ def eval_solution(R, qs, A0_inv,
   nb_peaks = len(qs)
   match_rate = float(nb_pairs) / float(nb_peaks)
   # centering score
-  if centering is None or nb_pairs == 0:
+  if nb_pairs == 0:
     centering_score = 0.
   elif centering == 'C':  # h+k=2n
     pair_hkls = rhkls.astype(np.int16)[pair_ids]
     nb_C_peaks = ((pair_hkls[:,0] + pair_hkls[:,1]) % 2 == 0).sum()
     C_ratio = float(nb_C_peaks) / float(nb_pairs)
     centering_score = 2 * C_ratio - 1.
+  else:
+    centering_score = 0.
   # total evaluation score
-  score = 0.1 * centering_score + match_rate
+  score = centering_factor * centering_score + match_rate
 
   results = {
     'match_rate': match_rate,
@@ -215,7 +230,8 @@ def index(peaks, table, A0, A0_inv,
           pair_tol=(3.E7, 1.0), 
           eval_tol=0.25, 
           refine_cycle=10,
-          centering=None):
+          centering=None,
+          centering_factor=0.0):
   """Summary
   
   argv:
@@ -258,8 +274,8 @@ def index(peaks, table, A0, A0_inv,
       hkl2 = table['hkl2'][match_id]
       ref_q1, ref_q2 = A0.dot(hkl1), A0.dot(hkl2)
       _R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
-      eval_results = eval_solution(_R, qs, A0_inv, 
-        eval_tol=eval_tol, centering=centering)
+      eval_results = eval_solution(_R, qs, A0_inv, eval_tol=eval_tol, 
+        centering=centering, centering_factor=centering_factor)
       if eval_results['score'] > score:
         score = eval_results['score']
         match_rate = eval_results['match_rate']
@@ -357,12 +373,15 @@ if __name__ == '__main__':
   wave_length = config['wave length']
   detector_distance = config['detector distance']
   pixel_size = config['pixel size'] 
+  lattice_type = config['lattice type']
   cell_parameters = np.asarray(config['cell parameters']) 
   cell_parameters[:3] *= 1E-10  # convert to meters
   centering = config['centering']
+  centering_factor = config['centering factor']
 
   # calculate reference transform matrix
-  A0 = calc_transform_matrix(cell_parameters)
+  A0 = calc_transform_matrix(cell_parameters,
+    lattice_type=lattice_type)
   A0_inv = np.linalg.inv(A0)
 
   experiment, run_id, class_id = parse_peak_list_filename(
@@ -428,7 +447,8 @@ if __name__ == '__main__':
       peaks = load_peaks(filepath)
       results = index(
         peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
-        refine_cycle=refine_cycle, centering=centering
+        refine_cycle=refine_cycle, centering=centering,
+        centering_factor=centering_factor
       )
       logging.info('Event %04d, match rate %.2f' % 
         (event_id, results['match_rate']))
