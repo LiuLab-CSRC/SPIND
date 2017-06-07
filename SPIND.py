@@ -32,6 +32,10 @@ from scipy.optimize import fmin_cg
 from itertools import combinations
 
 
+h_ = 4.135667662E-15  # Planck constant in eV*s
+c_ = 2.99792458E8  # light speed in m/sec
+
+
 def parse_peak_list_filename(filename):
   basename = os.path.splitext(os.path.basename(filename))[0]
   experiment, run_id, class_id, event_id = basename.split('-')
@@ -255,6 +259,8 @@ def index(peaks, table, A0, A0_inv,
   pair_ids = None  # indices of matched peaks
   R = np.identity(3)
   peaks_xy = peaks[:,0:2] * pixel_size
+  photon_energy = peaks[0,4]  # in eV
+  wave_length = h_ * c_ / photon_energy
   qs = det2fourier(peaks_xy, wave_length, detector_distance)
 
   pair_pool = list(combinations(range(5), 2))
@@ -370,7 +376,6 @@ if __name__ == '__main__':
 
   # load configurations
   config = yaml.load(open(config_file, 'r'))  
-  wave_length = config['wave length']
   detector_distance = config['detector distance']
   pixel_size = config['pixel size'] 
   lattice_type = config['lattice type']
