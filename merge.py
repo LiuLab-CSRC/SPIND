@@ -13,7 +13,7 @@ Options:
   --pixel-size=pixel_size           Pixel size in meters [default: 110E-6].
   --min-match-rate=min_match_rate   Min match rate accepted while merging [default: 0.5].
   --eval-tol=eval_tol               HKL tolerence between observed peaks and predicted spots [default: 0.25].
-  --hkl-diag                        Output eHKL for debug.
+  --diag                            Output more information for diagnosis.
 """
 
 import numpy as np 
@@ -142,12 +142,13 @@ if __name__ == '__main__':
     eval_tol = float(argv['--eval-tol'])
     output_file = argv['--output']
     verbose = argv['--verbose']
-    hkl_diag = argv['--hkl-diag']
+    diag = argv['--diag']
 
     nb_merge = 0  # number of merged pattern
     nb_event = 0  # number of event processed
     nb_meas = 0  # number of measurements merged
-    eHKLs = []
+    eHKLs = []  # HKL error
+    RESs = []  # resolution of reflections in accepted events
     peak_files = glob('%s/*.h5' % peak_dir)
     reflection_dict = {}
     spind_dict = {}
@@ -207,6 +208,8 @@ if __name__ == '__main__':
                 rHKL = np.round(HKL)
                 eHKL = np.abs(HKL - rHKL)
                 eHKLs += eHKL.tolist()
+                res = 1. / np.sqrt(np.diag(qs.dot(qs.T))) * 1E10  # in Angstrom
+                RESs += res.tolist()
                 pair_ids = np.where(eHKL.max(axis=1) < eval_tol)[0]
                 nb_pair = len(pair_ids)
                 if float(nb_pair) / float(peak_data.shape[0]) < min_match_rate:
@@ -242,6 +245,9 @@ if __name__ == '__main__':
     print('write hkl to %s' % output_file)
     write2hkl(reflection_dict, point_group, output_file)
 
-    # write eHKLs if specified
-    if hkl_diag:
-        np.savetxt('eHKL.txt', eHKLs, fmt='%.3f %.3f %.3f')
+    # write eHKLs and RESs for diagnosis
+    if diag:
+        eHKLs = np.array(eHKLs)
+        RESs = np.array(RESs).reshape((-1, 1))
+        data = np.concatenate((eHKLs, RESs), axis=1)
+        np.savetxt('diag.txt', data, fmt='%.3f %.3f %.3f %.3f')
