@@ -24,6 +24,11 @@ import logging
 from mpi4py import MPI
 import os
 import glob
+try:
+  import mkl
+  mkl.set_num_threads(1)
+except:
+  pass
 import numpy as np
 import h5py
 from math import acos, pi, cos, sin
@@ -44,7 +49,9 @@ def parse_peak_list_filename(filename):
 
 def load_peaks(filepath):
   peaks = np.loadtxt(filepath)
-  return peaks
+  dummy_ids = np.where(peaks[:,2]==0.)[0]
+  clean_peaks = np.delete(peaks, dummy_ids, 0)
+  return clean_peaks
 
 
 def load_table(filepath):
@@ -320,6 +327,8 @@ def index(peaks, table, A0, A0_inv,
 
 def refine(A, hkls, qs, pair_ids, refine_cycle):
   A_refined = A.copy()
+  if refine_cycle <= 0:
+    return 1E9, A_refined
   def _fun(x, *argv):
     asx, bsx, csx, asy, bsy, csy, asz, bsz, csz = x
     h, k, l, qx, qy, qz = argv
