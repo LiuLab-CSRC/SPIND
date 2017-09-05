@@ -9,13 +9,14 @@ Options:
   -t table_file                   Table filepath containing spot vector length 
                                   and pair angles.
   -o output_dir                   Output directory [default: output].
-  --start=<start_event_id>        The first event id to index [default: 0].
-  --end=<end_event_id>            The last event id to index [default: last].
-  --refine-cycle=<refine_cycle>   Number of refine cycle [default: 10].
-  --pair-tol=<pair_tol>           Reciprocal vector length and angle tolerence 
+  --start=start_event_id          The first event id to index [default: 0].
+  --end=end_event_id              The last event id to index [default: last].
+  --refine-cycle=refine_cycle     Number of refine cycle [default: 10].
+  --pair-tol=pair_tol             Reciprocal vector length and angle tolerence 
                                   in pair matching [default: 3.E7,1.0].
-  --eval-tol=<eval_tol>           hkl tolerence between observed peaks and 
+  --eval-tol=eval_tol             hkl tolerence between observed peaks and 
                                   predicted spots [default: 0.25].
+  --sort-by=sort_by               Peak sorting method [default: snr].
 """
 
 from docopt import docopt
@@ -41,17 +42,20 @@ h_ = 4.135667662E-15  # Planck constant in eV*s
 c_ = 2.99792458E8  # light speed in m/sec
 
 
-def parse_peak_list_filename(filename):
-  basename = os.path.splitext(os.path.basename(filename))[0]
-  experiment, run_id, class_id, event_id = basename.split('-')
-  return experiment, run_id, class_id
-
-
-def load_peaks(filepath):
+def load_peaks(filepath, sort_by, res_cutoff):
   peaks = np.loadtxt(filepath)
-  dummy_ids = np.where(peaks[:,2]==0.)[0]
-  clean_peaks = np.delete(peaks, dummy_ids, 0)
-  return clean_peaks
+  if sort_by == 'snr':
+    ind = np.argsort(peaks[:,3])
+  elif sort_by == 'intensity':
+    ind = np.argsort(peaks[:,2])
+  else:
+    print('Please use "intensity" or "snr" sorting method!')
+    sys.exit()
+  peaks = peaks[ind[::-1]]  # reverse sort
+  HP_ind = peaks[:,7] > res_cutoff
+  LP_ind = peaks[:,7] <= res_cutoff
+  peaks = np.concatenate((peaks[HP_ind], peaks[LP_ind]))
+  return peaks
 
 
 def load_table(filepath):
@@ -62,31 +66,6 @@ def load_table(filepath):
   table_dict['hkl2'] = table['hkl2'].value.astype(np.int16)
   table_dict['LA'] = table['LA'].value.astype(np.float32)
   return table_dict
-
-
-def det2fourier(det_xy, wave_length, det_dist):
-  """Detector 2d coordinates to fourier 3d coordinates
-  
-  Args:
-      det_xy (TYPE): Description
-      wave_length (TYPE): Description
-      det_dist (TYPE): Description
-  
-  Returns:
-      TYPE: 3d fourier coordinates in angstrom^-1
-  
-  """
-  nb_xy = len(det_xy)
-  det_dist = np.ones(nb_xy) * det_dist
-  det_dist = np.reshape(det_dist, (-1, 1))
-  q1 = np.hstack((det_xy, det_dist))
-  q1_norm = np.sqrt(np.diag(q1.dot(q1.T)))
-  q1_norm = q1_norm.reshape((-1, 1)).repeat(3, axis=1)
-  q1 = q1 / q1_norm
-  q0 = np.asarray([0., 0., 1.])
-  q0 = q0.reshape((1,-1)).repeat(nb_xy, axis=0)
-  q = 1. / wave_length * (q1 - q0)
-  return q
 
 
 def rad2deg(rad):
@@ -265,10 +244,7 @@ def index(peaks, table, A0, A0_inv,
   rhkls = None   # interger Miller indices
   pair_ids = None  # indices of matched peaks
   R = np.identity(3)
-  peaks_xy = peaks[:,0:2] * pixel_size
-  photon_energy = peaks[0,4]  # in eV
-  wave_length = h_ * c_ / photon_energy
-  qs = det2fourier(peaks_xy, wave_length, detector_distance)
+  qs = peaks[:, 4:7]
 
   pair_pool = list(combinations(range(5), 2))
   for i in range(len(pair_pool)):
@@ -382,6 +358,7 @@ if __name__ == '__main__':
   pair_tol_list = pair_tol_str.split(',')
   pair_tol = np.asarray(pair_tol_list, dtype=np.float)
   eval_tol = float(argv['--eval-tol'])
+  sort_by = argv['--sort-by']
 
   # load configurations
   config = yaml.load(open(config_file, 'r'))  
@@ -392,16 +369,13 @@ if __name__ == '__main__':
   cell_parameters[:3] *= 1E-10  # convert to meters
   centering = config['centering']
   centering_factor = config['centering factor']
+  res_cutoff = config['resolution cutoff'] * 1.E10  # in angstrom
 
   # calculate reference transform matrix
   A0 = calc_transform_matrix(cell_parameters,
     lattice_type=lattice_type)
   A0_inv = np.linalg.inv(A0)
 
-  experiment, run_id, class_id = parse_peak_list_filename(
-    glob.glob(peak_list_dir + '/*.txt')[0])
-  prefix = experiment + '-' + run_id + '-' + class_id
-  
   # MPI setup
   comm = MPI.COMM_WORLD
   size = comm.Get_size()
@@ -451,14 +425,14 @@ if __name__ == '__main__':
     'spind_indexing-%d.txt' % rank), 'w')
   for i in range(len(job)):
     event_id = job[i]
-    filename = prefix + '-e%04d' % event_id + '.txt'
+    filename = 'event-%d.txt' % event_id
     filepath = os.path.join(peak_list_dir, filename)
     if not os.path.exists(filepath):
       logging.warning('peak list file %s do not exist' % filepath)
     else:
       logging.info('Rank %d working on event %04d: %s' % 
         (rank, event_id, filepath))
-      peaks = load_peaks(filepath)
+      peaks = load_peaks(filepath, sort_by, res_cutoff)
       results = index(
         peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
         refine_cycle=refine_cycle, centering=centering,
@@ -511,7 +485,7 @@ if __name__ == '__main__':
       else:
         data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 
             'spind_indexing-%d.txt' % i))), axis=0)
-    np.savetxt(os.path.join(output_dir, prefix + '-spind.txt'),
+    np.savetxt(os.path.join(output_dir, 'spind.txt'),
            data[:,0:-1], fmt="%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
     overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
     print('Overall indexing rate: %.2f%%' % overall_indexing_rate)
