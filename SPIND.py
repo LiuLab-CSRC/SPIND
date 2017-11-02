@@ -4,19 +4,20 @@ Usage:
   SPIND.py <config.yml> -i peak_list_dir -t table_file  [options]
 
 Options:
-  -h --help                       Show this screen.
-  -i peak_list_dir                Peak list directory.
-  -t table_file                   Table filepath containing spot vector length 
-                                  and pair angles.
-  -o output_dir                   Output directory [default: output].
-  --start=start_event_id          The first event id to index [default: 0].
-  --end=end_event_id              The last event id to index [default: last].
-  --refine-cycle=refine_cycle     Number of refine cycle [default: 10].
-  --pair-tol=pair_tol             Reciprocal vector length and angle tolerence 
-                                  in pair matching [default: 3.E7,1.0].
-  --eval-tol=eval_tol             hkl tolerence between observed peaks and 
-                                  predicted spots [default: 0.25].
-  --sort-by=sort_by               Peak sorting method [default: snr].
+  -h --help                         Show this screen.
+  -i peak_list_dir                  Peak list directory.
+  -t table_file                     Table filepath containing spot vector length 
+                                    and pair angles.
+  -o output_dir                     Output directory [default: output].
+  --max-peaks n_peaks               Number of peaks for solution candidates searching [default: 5].
+  --start=start_event_id            The first event id to index [default: 0].
+  --end=end_event_id                The last event id to index [default: last].
+  --refine-cycle=refine_cycle       Number of refine cycle [default: 10].
+  --pair-tol=pair_tol               Reciprocal vector length and angle tolerence 
+                                    in pair matching [default: 3.E7,1.0].
+  --eval-tol=eval_tol               hkl tolerence between observed peaks and 
+                                    predicted spots [default: 0.25].
+  --sort-by=sort_by                 Peak sorting method [default: snr].
 """
 
 from docopt import docopt
@@ -221,20 +222,24 @@ def index(peaks, table, A0, A0_inv,
           eval_tol=0.25, 
           refine_cycle=10,
           centering=None,
-          centering_factor=0.0):
+          centering_factor=0.0,
+          max_peaks=5):
   """Summary
   
-  argv:
-    peaks (TYPE): Description
-    table (numpy.ndarray): Description
-    A (TYPE): transform_matrix
-    A_inv (TYPE): Description
-    pair_tol (list, optional): Description
-    eval_tol (float, optional): Description
-    refine_cycle (int, optional): Description
+  Args:
+      peaks (TYPE): peak data load from txt file
+      table (TYPE): lookup table generated from given lattice
+      A0 (TYPE): transform matrix.
+      A0_inv (TYPE): inverse matrix of A0
+      pair_tol (tuple, optional): pair tolerance for candidates searching
+      eval_tol (float, optional): hkl tolerance for evaluation
+      refine_cycle (int, optional): number of refinement cycles
+      centering (None, optional): centering type of lattice
+      centering_factor (float, optional): centering weighting factor
+      max_peaks (int, optional): max peaks used to generate peak pairs
   
   Returns:
-    TYPE: Description
+      dict: indexing results
   """
   match_rate = 0.
   centering_score = 0.
@@ -246,7 +251,7 @@ def index(peaks, table, A0, A0_inv,
   R = np.identity(3)
   qs = peaks[:, 4:7]
 
-  pair_pool = list(combinations(range(5), 2))
+  pair_pool = list(combinations(range(min(qs.shape[0], max_peaks)), 2))
   for i in range(len(pair_pool)):
     pair = pair_pool[i]
     q1, q2 = qs[pair[0]], qs[pair[1]]
@@ -347,6 +352,7 @@ if __name__ == '__main__':
   peak_list_dir = argv['-i']
   table_filepath = argv['-t']
   output_dir = argv['-o']
+  max_peaks = int(argv['--max-peaks'])
   refine_cycle = int(argv['--refine-cycle'])
   start_id = int(argv['--start'])
   end_id = argv['--end']
@@ -436,7 +442,7 @@ if __name__ == '__main__':
       results = index(
         peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
         refine_cycle=refine_cycle, centering=centering,
-        centering_factor=centering_factor
+        centering_factor=centering_factor, max_peaks=max_peaks
       )
       logging.info('Event %04d, match rate %.2f' % 
         (event_id, results['match_rate']))
@@ -463,7 +469,7 @@ if __name__ == '__main__':
       print('=' * 40)
       print('Event: %d' % job[i])
       print('# of peaks: %d' % len(peaks))
-      print('match rate: %.2f' % results['match_rate'])
+      print('match rate: %.3f' % results['match_rate'])
       print('pair dist: %.3E' % results['pair_dist'])
       print('refined pair dist: %.3E' % results['pair_dist_refined'])
       print('centering score: %.2f' % results['centering_score'])
@@ -485,6 +491,7 @@ if __name__ == '__main__':
       else:
         data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 
             'spind_indexing-%d.txt' % i))), axis=0)
+    data = data.reshape((-1, 14))
     np.savetxt(os.path.join(output_dir, 'spind.txt'),
            data[:,0:-1], fmt="%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
     overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
