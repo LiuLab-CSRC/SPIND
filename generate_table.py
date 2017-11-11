@@ -101,15 +101,14 @@ if __name__ == '__main__':
     lattice_type=lattice_type)
   a_star, b_star, c_star = A[:,0], A[:,1], A[:,2] 
 
+  q_cutoff = 1. / res_cutoff
+  max_h = int(np.ceil(q_cutoff / norm(a_star)))
+  max_k = int(np.ceil(q_cutoff / norm(b_star)))
+  max_l = int(np.ceil(q_cutoff / norm(c_star)))
+  print('max_h: %d, max_k: %d, max_l: %d' %
+    (max_h, max_k, max_l))  
   if hkl_file is None:
     # hkl grid
-    q_cutoff = 1. / res_cutoff
-    max_h = int(np.ceil(q_cutoff / norm(a_star)))
-    max_k = int(np.ceil(q_cutoff / norm(b_star)))
-    max_l = int(np.ceil(q_cutoff / norm(c_star)))
-    print('max_h: %d, max_k: %d, max_l: %d' %
-      (max_h, max_k, max_l))    
-
     hh = np.arange(-max_h, max_h+1)
     kk = np.arange(-max_k, max_k+1)
     ll = np.arange(-max_l, max_l+1)   
@@ -145,6 +144,8 @@ if __name__ == '__main__':
     hkls = hkls[valid_idx]  
   else:  # load 1/8 hkls from file
     hkl = np.loadtxt(hkl_file, dtype=np.int16)
+    valid_idx = (hkl[:,0] <= max_h) * (hkl[:,1] <= max_k) * (hkl[:,2] <= max_l)
+    hkl = hkl[valid_idx]
     hk_l = hkl.copy()
     hk_l[:,2] = -hkl[:,2]  # h,k,-l
     h_kl = hkl.copy()
