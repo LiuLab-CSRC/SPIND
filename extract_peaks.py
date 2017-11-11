@@ -104,7 +104,7 @@ def extract_peaks(cxi_file, output_dir, sort_by='SNR',
             output = output_dir + '/' + basename + '-e%04d.txt' % event_id
         elif output_format == 'h5':
             dataset_names.append(basename + '-e%04d' % event_id)
-        nb_peaks = np.nonzero(data['entry_1/result_1/peakTotalIntensity'][event_id][:])[0].size
+        nb_peaks = data['/entry_1/result_1/nPeaks'][event_id]
         peak_list = []
         for peak_id in range(nb_peaks):
             rawX = int(data['/entry_1/result_1/peakXPosRaw'][event_id][peak_id])
