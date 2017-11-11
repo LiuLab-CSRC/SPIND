@@ -25,6 +25,7 @@ import yaml
 import logging
 from mpi4py import MPI
 import os
+import sys
 import glob
 try:
   import mkl
@@ -41,6 +42,7 @@ from itertools import combinations
 
 h_ = 4.135667662E-15  # Planck constant in eV*s
 c_ = 2.99792458E8  # light speed in m/sec
+epsilon = 1E-9  
 
 
 def load_peaks(filepath, sort_by, res_cutoff):
@@ -160,7 +162,8 @@ def axis_angle_to_rotation_matrix(axis, angle):
 def eval_solution(R, qs, A0_inv, 
                   eval_tol=0.25,
                   centering=None,
-                  centering_factor=0.0):
+                  centering_factor=0.0,
+                  miller_set=None):
   """Evaluate the solution by match rate and centering restraint
   
   Args:
@@ -170,6 +173,7 @@ def eval_solution(R, qs, A0_inv,
       eval_tol (float, optional): hkl tolerence
       centering (None, optional): centering type
       centering_factor (float, optional): centering score factor
+      miller_set (None, optional): constraint on hkl indices
   
   Returns:
       TYPE: Description
@@ -178,7 +182,16 @@ def eval_solution(R, qs, A0_inv,
   hkls = A0_inv.dot(R_inv.dot(qs.T)).T
   rhkls = np.rint(hkls)
   ehkls = np.abs(hkls - rhkls)
-  pair_ids = np.where(np.max(ehkls, axis=1) < eval_tol)[0]  # indices of matched peaks
+  if miller_set is None:
+    pair_ids = np.where(np.max(ehkls, axis=1) < eval_tol)[0]  # indices of matched peaks
+  else:
+    _pair_ids = np.where(np.max(ehkls, axis=1) < eval_tol)[0]
+    pair_ids = []
+    for _pair_id in _pair_ids:
+      abs_hkl = np.abs(rhkls[_pair_id])
+      if norm(miller_set - abs_hkl, axis=1).min() < epsilon:
+        pair_ids.append(_pair_id)
+
   nb_pairs = len(pair_ids)
   nb_peaks = len(qs)
   match_rate = float(nb_pairs) / float(nb_peaks)
@@ -223,7 +236,8 @@ def index(peaks, table, A0, A0_inv,
           refine_cycle=10,
           centering=None,
           centering_factor=0.0,
-          max_peaks=5):
+          max_peaks=5,
+          miller_set=None):
   """Summary
   
   Args:
@@ -237,6 +251,7 @@ def index(peaks, table, A0, A0_inv,
       centering (None, optional): centering type of lattice
       centering_factor (float, optional): centering weighting factor
       max_peaks (int, optional): max peaks used to generate peak pairs
+      miller_set (None, optional): constraint on hkl indices
   
   Returns:
       dict: indexing results
@@ -269,7 +284,7 @@ def index(peaks, table, A0, A0_inv,
       ref_q1, ref_q2 = A0.dot(hkl1), A0.dot(hkl2)
       _R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
       eval_results = eval_solution(_R, qs, A0_inv, eval_tol=eval_tol, 
-        centering=centering, centering_factor=centering_factor)
+        centering=centering, centering_factor=centering_factor, miller_set=miller_set)
       if eval_results['score'] > score:
         score = eval_results['score']
         match_rate = eval_results['match_rate']
@@ -295,6 +310,8 @@ def index(peaks, table, A0, A0_inv,
 
   index_results = {
     'A': A,
+    'hkls': hkls,
+    'pair_ids': pair_ids,
     'match_rate': match_rate,
     'nb_pairs': nb_pairs,
     'pair_dist': pair_dist,
@@ -309,7 +326,7 @@ def index(peaks, table, A0, A0_inv,
 def refine(A, hkls, qs, pair_ids, refine_cycle):
   A_refined = A.copy()
   if refine_cycle <= 0:
-    return 1E9, A_refined
+    return 1E99, A_refined
   def _fun(x, *argv):
     asx, bsx, csx, asy, bsy, csy, asz, bsz, csz = x
     h, k, l, qx, qy, qz = argv
@@ -376,6 +393,11 @@ if __name__ == '__main__':
   centering = config['centering']
   centering_factor = config['centering factor']
   res_cutoff = config['resolution cutoff'] * 1.E10  # in angstrom
+  miller_set = None
+  if config.has_key('hkl constraint'):
+    if config['hkl constraint'] is True:
+      print('Apply constraint on hkl using %s' % config['hkl file'])
+      miller_set = np.loadtxt(config['hkl file'])
 
   # calculate reference transform matrix
   A0 = calc_transform_matrix(cell_parameters,
@@ -442,7 +464,8 @@ if __name__ == '__main__':
       results = index(
         peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
         refine_cycle=refine_cycle, centering=centering,
-        centering_factor=centering_factor, max_peaks=max_peaks
+        centering_factor=centering_factor, max_peaks=max_peaks,
+        miller_set=miller_set
       )
       logging.info('Event %04d, match rate %.2f' % 
         (event_id, results['match_rate']))
@@ -453,8 +476,9 @@ if __name__ == '__main__':
       else:
         best_A = results['A_refined']
         best_dist = results['pair_dist_refined']
+      # writing basic indexing result
       output.write('%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
-             % (job[i], 
+             % (event_id, 
               results['match_rate'], 
               results['nb_pairs'], 
               best_dist,
@@ -462,6 +486,14 @@ if __name__ == '__main__':
               best_A[0,1], best_A[1,1], best_A[2,1],
               best_A[0,2], best_A[1,2], best_A[2,2],
               results['pair_dist']))
+      # writing detailed indexing result
+      if results['hkls'] is not None:
+        match_flags = np.zeros((peaks.shape[0], 1))
+        match_flags[results['pair_ids']] = 1
+        detailed_info = np.hstack((peaks[:,:2], results['hkls'], match_flags))
+        np.savetxt(os.path.join(output_dir, 
+          'spind_indexing-%d-%d.txt' % (rank, event_id)), 
+          detailed_info, fmt='%.9e %.9e %.3f %.3f %.3f %d')
       if results['match_rate'] >= 0.5 and \
          results['centering_score'] >= 0.5:
         nb_indexed += 1
