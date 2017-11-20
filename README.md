@@ -1,37 +1,48 @@
-## Welcome to GitHub Pages
+# Sparse Pattern INDexing toolkit
 
-You can use the [editor on GitHub](https://github.com/LiuLab-CSRC/indexing/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+## Installation
+First, install some necessary tools. For CentOS users, just use the following command,
 
-### Markdown
+`sudo yum install -y git wget bzip2`
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+Then download SPIND package, 
 
-```markdown
-Syntax highlighted code block
+`git clone https://github.com/LiuLab-CSRC/indexing.git`
 
-# Header 1
-## Header 2
-### Header 3
+### Install CrystFEL-SPIND
+To integrate SPIND into CrystFEL, we add SPIND module to CrystFEL-0.6.2. See detailed installation instructions [here](http://www.desy.de/~twhite/crystfel/install.html).
 
-- Bulleted
-- List
+### Install SPIND
+SPIND is implemented using Python, you do not have to do standard `configure`, `make`, `make install`, just install necessary dependencies.
 
-1. Numbered
-2. List
+SPIND package has the following dependencies,
 
-**Bold** and _Italic_ and `Code` text
+* numpy
+* scipy
+* h5py
+* mpi4py
+* yaml
+* docopt
 
-[Link](url) and ![Image](src)
-```
+To make life easier, [anaconda](https://anaconda.org) is highly recommended for Python-related library management. 
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
+Download `anaconda` for Python2.7 by
 
-### Jekyll Themes
+`wget https://repo.continuum.io/archive/Anaconda2-5.0.1-Linux-x86_64.sh`
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/LiuLab-CSRC/indexing/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
+Install anaconda, 
 
-### Support or Contact
+`bash Anaconda2-5.0.1-Linux-x86_64.sh`
 
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+Accept the license then wait minutes for installation.
+
+After the installation, make the installer prepend anaconda location to `PATH` in your `.bashrc` file.
+
+Then `source ~/.bashrc`.
+
+Finally, install SPIND dependencies using
+
+`conda install mpi4py yaml docopt`
+
+Installation is done! Congratulations!
