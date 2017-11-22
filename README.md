@@ -46,4 +46,5 @@ Finally, install SPIND dependencies using
 
 Installation is done! Congratulations!
 
+### Usage
 Visit [https://liulab-csrc.github.io/SPIND/](https://liulab-csrc.github.io/SPIND/) for usage manual.
