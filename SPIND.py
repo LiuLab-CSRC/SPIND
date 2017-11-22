@@ -1,26 +1,3 @@
-#!/bin/env python
-"""
-Usage:
-  SPIND.py <config.yml> -i peak_list_dir -t table_file  [options]
-
-Options:
-  -h --help                         Show this screen.
-  -i peak_list_dir                  Peak list directory.
-  -t table_file                     Table filepath containing spot vector length 
-                                    and pair angles.
-  -o output_dir                     Output directory [default: output].
-  --max-peaks n_peaks               Number of peaks for solution candidates searching [default: 5].
-  --start=start_event_id            The first event id to index [default: 0].
-  --end=end_event_id                The last event id to index [default: last].
-  --refine-cycle=refine_cycle       Number of refine cycle [default: 10].
-  --pair-tol=pair_tol               Reciprocal vector length and angle tolerence 
-                                    in pair matching [default: 3.E7,1.0].
-  --eval-tol=eval_tol               hkl tolerence between observed peaks and 
-                                    predicted spots [default: 0.25].
-  --sort-by=sort_by                 Peak sorting method [default: snr].
-"""
-
-from docopt import docopt
 import yaml
 import logging
 from mpi4py import MPI
@@ -38,11 +15,12 @@ from math import acos, pi, cos, sin
 from numpy.linalg import norm
 from scipy.optimize import fmin_cg
 from itertools import combinations
+from tqdm import tqdm
 
 
 h_ = 4.135667662E-15  # Planck constant in eV*s
 c_ = 2.99792458E8  # light speed in m/sec
-epsilon = 1E-9  
+epsilon = 1E-99  
 
 
 def load_peaks(filepath, sort_by, res_cutoff):
@@ -62,7 +40,6 @@ def load_peaks(filepath, sort_by, res_cutoff):
 
 
 def load_table(filepath):
-  print("loading table: %s" % filepath)
   table = h5py.File(filepath, 'r')
   table_dict = {}
   table_dict['hkl1'] = table['hkl1'].value.astype(np.int16)
@@ -108,17 +85,6 @@ def calc_transform_matrix(cell_param,
 
 
 def calc_rotation_matrix(q1, q2, ref_q1, ref_q2):
-  """Calculate rotation matrix R so that R.dot(ref_q1,2) ~= q1,2
-  
-  argv:
-    q1 (TYPE): Description
-    q2 (TYPE): Description
-    ref_q1 (TYPE): Description
-    ref_q2 (TYPE): Description
-  
-  Returns:
-    TYPE: Description
-  """
   ref_nv = np.cross(ref_q1, ref_q2) 
   q_nv = np.cross(q1, q2)
   if min(norm(ref_nv), norm(q_nv)) == 0.:  # avoid 0 degree including angle
@@ -141,15 +107,6 @@ def calc_rotation_matrix(q1, q2, ref_q1, ref_q2):
 
 
 def axis_angle_to_rotation_matrix(axis, angle):
-  """Convert axis angle to rotation matrix
-  
-  argv:
-    axis (TYPE): Rotation axis vector
-    angle (TYPE): Rotation angle in degrees
-  
-  Returns:
-    TYPE: Rotation matrix
-  """
   x, y, z = axis / norm(axis)
   angle = deg2rad(angle)
   c, s = cos(angle), sin(angle)
@@ -159,29 +116,27 @@ def axis_angle_to_rotation_matrix(axis, angle):
   return np.asarray(R)
 
 
-def eval_solution(R, qs, A0_inv, 
+class Solution(object):
+  def __str__(self):
+    return str(self.__dict__)
+
+
+def eval_solution(solution, qs, A0_inv, 
                   eval_tol=0.25,
                   centering=None,
                   centering_factor=0.0,
-                  miller_set=None):
-  """Evaluate the solution by match rate and centering restraint
-  
-  Args:
-      R (TYPE): Rotation matrix
-      qs (TYPE): Peak coorinates in fourier space
-      A0_inv (TYPE): Description
-      eval_tol (float, optional): hkl tolerence
-      centering (None, optional): centering type
-      centering_factor (float, optional): centering score factor
-      miller_set (None, optional): constraint on hkl indices
-  
-  Returns:
-      TYPE: Description
-  """
+                  miller_set=None,
+                  seed=None,
+                  seed_hkl_tol=0.1,
+                  indexed_peak_ids=[]):
+  R = solution.R
   R_inv = np.linalg.inv(R)
   hkls = A0_inv.dot(R_inv.dot(qs.T)).T
   rhkls = np.rint(hkls)
   ehkls = np.abs(hkls - rhkls)
+  solution.hkls = hkls 
+  solution.rhkls = rhkls
+  solution.ehkls = ehkls
   if miller_set is None:
     pair_ids = np.where(np.max(ehkls, axis=1) < eval_tol)[0]  # indices of matched peaks
   else:
@@ -191,33 +146,57 @@ def eval_solution(R, qs, A0_inv,
       abs_hkl = np.abs(rhkls[_pair_id])
       if norm(miller_set - abs_hkl, axis=1).min() < epsilon:
         pair_ids.append(_pair_id)
+  pair_ids = list(set(pair_ids) - set(indexed_peak_ids))
 
   nb_pairs = len(pair_ids)
   nb_peaks = len(qs)
   match_rate = float(nb_pairs) / float(nb_peaks)
+  solution.pair_ids = pair_ids
+  solution.match_rate = match_rate
+  solution.nb_pairs = nb_pairs
   # centering score
   if nb_pairs == 0:
     centering_score = 0.
+  elif centering == 'A':  # k+l=2n
+    pair_hkls = rhkls.astype(np.int16)[pair_ids]
+    nb_A_peaks = ((pair_hkls[:,1] + pair_hkls[:,2]) % 2 == 0).sum()
+    A_ratio = float(nb_A_peaks) / float(nb_pairs)
+    centering_score = 2 * A_ratio - 1.
+  elif centering == 'B':  # h+l=2n
+    pair_hkls = rhkls.astype(np.int16)[pair_ids]
+    nb_B_peaks = ((pair_hkls[:,0] + pair_hkls[:,2]) % 2 == 0).sum()
+    B_ratio = float(nb_A_peaks) / float(nb_pairs)
+    centering_score = 2 * A_ratio - 1.
   elif centering == 'C':  # h+k=2n
     pair_hkls = rhkls.astype(np.int16)[pair_ids]
     nb_C_peaks = ((pair_hkls[:,0] + pair_hkls[:,1]) % 2 == 0).sum()
     C_ratio = float(nb_C_peaks) / float(nb_pairs)
     centering_score = 2 * C_ratio - 1.
+  elif centering == 'I':  # h+k+l=2n
+    pair_hkls = rhkls.astype(np.int16)[pair_ids]
+    nb_I_peaks = (hkls.sum(axis=1) % 2 == 0).sum()
+    I_ratio = float(nb_I_peaks) / float(nb_pairs)
+    centering_score = 2 * C_ratio - 1.
+  elif centering == 'P':
+    pair_hkls = rhkls.astype(np.int16)[pair_ids]
+    nb_A_peaks = ((pair_hkls[:,1] + pair_hkls[:,2]) % 2 == 0).sum()
+    nb_B_peaks = ((pair_hkls[:,0] + pair_hkls[:,2]) % 2 == 0).sum()
+    nb_C_peaks = ((pair_hkls[:,0] + pair_hkls[:,1]) % 2 == 0).sum()
+    nb_I_peaks = (hkls.sum(axis=1) % 2 == 0).sum()
+    centering_score = 2.*(1-float(max(nb_A_peaks, nb_B_peaks, nb_C_peaks, nb_I_peaks))/float(nb_pairs))
   else:
     centering_score = 0.
-  # total evaluation score
-  score = centering_factor * centering_score + match_rate
+  solution.centering_score = centering_score
 
-  results = {
-    'match_rate': match_rate,
-    'nb_pairs': nb_pairs,
-    'hkls': hkls,
-    'rhkls': rhkls,
-    'pair_ids': pair_ids,
-    'centering_score': centering_score,
-    'score': score,
-  }
-  return results
+  # evaluation metrics
+  solution.seed_error = ehkls[seed,:].max()
+  solution.total_score = centering_factor * centering_score + match_rate
+  if len(pair_ids) == 0:
+    solution.total_error = 1.  # no matching peaks, set error to 1
+  else:
+    solution.total_error = ehkls[pair_ids].mean()  # naive error of matching peaks
+
+  return solution
 
 
 def calc_angle(v1, v2):
@@ -228,105 +207,114 @@ def calc_angle(v1, v2):
   cos_value = max(min(cos_value, 1.), -1.)
   angle = rad2deg(acos(cos_value))
   return angle
-
+    
 
 def index(peaks, table, A0, A0_inv, 
-          pair_tol=(3.E7, 1.0), 
-          eval_tol=0.25, 
-          refine_cycle=10,
-          centering=None,
-          centering_factor=0.0,
-          max_peaks=5,
-          miller_set=None):
-  """Summary
-  
-  Args:
-      peaks (TYPE): peak data load from txt file
-      table (TYPE): lookup table generated from given lattice
-      A0 (TYPE): transform matrix.
-      A0_inv (TYPE): inverse matrix of A0
-      pair_tol (tuple, optional): pair tolerance for candidates searching
-      eval_tol (float, optional): hkl tolerance for evaluation
-      refine_cycle (int, optional): number of refinement cycles
-      centering (None, optional): centering type of lattice
-      centering_factor (float, optional): centering weighting factor
-      max_peaks (int, optional): max peaks used to generate peak pairs
-      miller_set (None, optional): constraint on hkl indices
-  
-  Returns:
-      dict: indexing results
-  """
-  match_rate = 0.
-  centering_score = 0.
-  score = 0.
-  nb_pairs = 0  # number of matched pairs
-  hkls = None  # decimal Miller indices
-  rhkls = None   # interger Miller indices
-  pair_ids = None  # indices of matched peaks
-  R = np.identity(3)
-  qs = peaks[:, 4:7]
+          seed_pool_size=5,
+          seed_len_tol=3.E7, seed_angle_tol=1.0,
+          seed_hkl_tol=0.1, eval_tol=0.25,
+          centering="P", centering_factor=0., 
+          refine_cycles=10,
+          miller_set=None, multi_index=False):
+  solutions = []
+  indexed_peak_ids = []
 
-  pair_pool = list(combinations(range(min(qs.shape[0], max_peaks)), 2))
-  for i in range(len(pair_pool)):
-    pair = pair_pool[i]
-    q1, q2 = qs[pair[0]], qs[pair[1]]
-    q1_norm, q2_norm = norm(q1), norm(q2)
-    if q1_norm < q2_norm:
+  if multi_index is True:
+    while True:
+      solution = index_once(peaks, table, A0, A0_inv, 
+                            seed_pool_size=seed_pool_size,
+                            seed_len_tol=seed_len_tol, seed_angle_tol=seed_angle_tol,
+                            seed_hkl_tol=seed_hkl_tol, eval_tol=eval_tol,
+                            centering=centering, centering_factor=centering_factor, 
+                            refine_cycles=refine_cycles,
+                            miller_set=miller_set, multi_index=multi_index,
+                            indexed_peak_ids=indexed_peak_ids)
+      if solution.match_rate == 0:
+        break
+      solutions.append(solution)
+      indexed_peak_ids += solution.pair_ids
+  else:
+    solution = index_once(peaks, table, A0, A0_inv, 
+                          seed_pool_size=seed_pool_size,
+                          seed_len_tol=seed_len_tol, seed_angle_tol=seed_angle_tol,
+                          seed_hkl_tol=seed_hkl_tol, eval_tol=eval_tol,
+                          centering=centering, centering_factor=centering_factor, 
+                          refine_cycles=refine_cycles,
+                          miller_set=miller_set, multi_index=multi_index,
+                          indexed_peak_ids=indexed_peak_ids)
+    if solution.match_rate > 0:
+      solutions.append(solution)
+  return solutions
+
+
+def index_once(peaks, table, A0, A0_inv, 
+               seed_pool_size=5,
+               seed_len_tol=3.E7, seed_angle_tol=1.0,
+               seed_hkl_tol=0.1, eval_tol=0.25,
+               centering="P", centering_factor=0., 
+               refine_cycles=10,
+               miller_set=None, multi_index=False,
+               indexed_peak_ids=[]):
+  qs = peaks[:, 4:7]
+  unindexed_peak_ids = list(set(range(min(qs.shape[0], seed_pool_size))) - set(indexed_peak_ids))
+  seed_pool = list(combinations(unindexed_peak_ids, 2))
+  good_solutions = []
+  # collect good solutions
+  for i in tqdm(range(len(seed_pool))):
+    seed = seed_pool[i]
+    q1, q2 = qs[seed,:]
+    q1_len, q2_len = norm(q1), norm(q2)
+    if q1_len < q2_len:
         q1, q2 = q2, q1
-        q1_norm, q2_norm = q2_norm, q1_norm
+        q1_len, q2_len = q2_len, q1_len
     angle = calc_angle(q1, q2)
-    match_ids = np.where((np.abs(q1_norm - table['LA'][:,0]) < pair_tol[0]) * 
-               (np.abs(q2_norm - table['LA'][:,1]) < pair_tol[0]) *
-               (np.abs(angle - table['LA'][:,2]) < pair_tol[1]))[0]
+    match_ids = np.where((np.abs(q1_len - table['LA'][:,0]) < seed_len_tol) * 
+               (np.abs(q2_len - table['LA'][:,1]) < seed_len_tol) *
+               (np.abs(angle - table['LA'][:,2]) < seed_angle_tol))[0]
     for match_id in match_ids:
       hkl1 = table['hkl1'][match_id]
       hkl2 = table['hkl2'][match_id]
       ref_q1, ref_q2 = A0.dot(hkl1), A0.dot(hkl2)
-      _R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
-      eval_results = eval_solution(_R, qs, A0_inv, eval_tol=eval_tol, 
-        centering=centering, centering_factor=centering_factor, miller_set=miller_set)
-      if eval_results['score'] > score:
-        score = eval_results['score']
-        match_rate = eval_results['match_rate']
-        nb_pairs = eval_results['nb_pairs']
-        hkls = eval_results['hkls']
-        rhkls = eval_results['rhkls']
-        pair_ids = eval_results['pair_ids']
-        centering_score = eval_results['centering_score']
-        R = _R
-  if hkls is None:
-    eXYZs = np.ones((len(qs), 3), dtype=np.float32)
+      solution = Solution()
+      solution.R = calc_rotation_matrix(q1, q2, ref_q1, ref_q2)
+      solution = eval_solution(solution, qs, A0_inv, eval_tol=eval_tol, 
+        centering=centering, centering_factor=centering_factor, 
+        miller_set=miller_set, seed=seed, seed_hkl_tol=seed_hkl_tol, 
+        indexed_peak_ids=indexed_peak_ids)
+
+      # only keep solution from good seed 
+      if solution.seed_error <= seed_hkl_tol:
+        good_solutions.append(solution)
+
+  # pick up best solution
+  if len(good_solutions) > 0:
+    good_solutions.sort(key=lambda x: x.total_score, reverse=True)
+    best_score = good_solutions[0].total_score
+    best_solutions = [solution for solution in good_solutions if solution.total_score==best_score]
+    best_solutions.sort(key=lambda x: x.total_error, reverse=False)
+    best_solution = best_solutions[0]  # best solution has highest total score and lowest total error
   else:
-    eXYZs = np.abs(A0.dot(hkls.T) - A0.dot(rhkls.T)).T  # Fourier space error between peaks and predicted spots
-  dists = np.sqrt(eXYZs.dot(eXYZs.T).diagonal())
-  pair_dist = np.mean(dists[pair_ids])  # average distance between mached peaks and the correspoding predicted spots
-  A = R.dot(A0)
-  if pair_ids is None:
-    pair_dist_refined, A_refined = pair_dist, A
+    best_solution = None
+
+  # refine best solution if exists
+  if best_solution is None:
+    dummy_solution = Solution()
+    dummy_solution.R = np.identity(3)
+    dummy_solution.match_rate = 0.
+    return dummy_solution
   else:
-    pair_dist_refined, A_refined = refine(A, rhkls, qs, pair_ids, refine_cycle)  # refine A matrix with matched pairs to minimize norm(AH-q)
-  logging.info("After refinement, delta_A %.3e, dist %.3e -> %.3e" % 
-         (norm(A_refined - A), pair_dist, pair_dist_refined))
+    best_solution.A = best_solution.R.dot(A0)
+    eXYZs = np.abs(best_solution.A.dot(best_solution.rhkls.T) - qs.T).T  # Fourier space error between peaks and predicted spots
+    dists = norm(eXYZs, axis=1)
+    best_solution.pair_dist = dists[best_solution.pair_ids].mean()  # average distance between matched peaks and the correspoding predicted spots
+    best_solution.A = best_solution.R.dot(A0)  
+    refined_solution = refine(best_solution, qs, refine_cycles)  # refine A matrix with matched pairs to minimize norm(AH-q)
 
-  index_results = {
-    'A': A,
-    'hkls': hkls,
-    'pair_ids': pair_ids,
-    'match_rate': match_rate,
-    'nb_pairs': nb_pairs,
-    'pair_dist': pair_dist,
-    'A_refined': A_refined,
-    'pair_dist_refined': pair_dist_refined,
-    'centering_score': centering_score,
-    'score': score,
-  }
-  return index_results
+  return refined_solution
 
 
-def refine(A, hkls, qs, pair_ids, refine_cycle):
-  A_refined = A.copy()
-  if refine_cycle <= 0:
-    return 1E99, A_refined
+def refine(solution, qs, refine_cycle):
+  A_refined = solution.A.copy()
   def _fun(x, *argv):
     asx, bsx, csx, asy, bsy, csy, asz, bsz, csz = x
     h, k, l, qx, qy, qz = argv
@@ -347,57 +335,78 @@ def refine(A, hkls, qs, pair_ids, refine_cycle):
     return np.asarray((g_asx, g_bsx, g_csx,
                g_asy, g_bsy, g_csy,
                g_asz, g_bsz, g_csz))
+  rhkls = solution.rhkls
+  pair_ids = solution.pair_ids
   for i in range(refine_cycle):
     for j in range(len(pair_ids)):  # refine by each reflection
       pair_id = pair_ids[j]
       x0 = A_refined.reshape((-1))
-      hkl = hkls[pair_id,:]
+      rhkl = rhkls[pair_id,:]
       q = qs[pair_id,:]
-      args = (hkl[0], hkl[1], hkl[2], q[0], q[1], q[2])
+      args = (rhkl[0], rhkl[1], rhkl[2], q[0], q[1], q[2])
       res = fmin_cg(_fun, x0, fprime=_gradient, args=args, disp=0)
       A_refined = res.reshape((3,3))
-    eXYZs = np.abs(A_refined.dot(hkls.T) - qs.T).T
-    dists = np.sqrt(eXYZs.dot(eXYZs.T).diagonal())
-    pair_dist = np.mean(dists[pair_ids])
-  return pair_dist, A_refined
+  eXYZs = np.abs(A_refined.dot(rhkls.T) - qs.T).T
+  dists = norm(eXYZs, axis=1)
+  pair_dist = dists[pair_ids].mean()
+
+  if pair_dist < solution.pair_dist:
+    solution.A_refined = A_refined
+    solution.pair_dist_refined = pair_dist
+    solution.hkls_refined = np.linalg.inv(A_refined).dot(qs.T).T
+    solution.rhkls_refined = np.rint(solution.hkls_refined)
+    solution.ehkls_refined = np.abs(solution.hkls_refined - solution.rhkls_refined)
+  else:
+    solution.A_refined = solution.A.copy()
+    solution.pair_dist_refined = solution.pair_dist
+    solution.hkls_refined = solution.hkls.copy()
+    solution.rhkls_refined = solution.rhkls.copy()
+    solution.ehkls_refined = solution.ehkls.copy()
+  return solution
 
 
 if __name__ == '__main__':
-  # parse command options
-  argv = docopt(__doc__)
-  config_file = argv['<config.yml>']
-  peak_list_dir = argv['-i']
-  table_filepath = argv['-t']
-  output_dir = argv['-o']
-  max_peaks = int(argv['--max-peaks'])
-  refine_cycle = int(argv['--refine-cycle'])
-  start_id = int(argv['--start'])
-  end_id = argv['--end']
-  if end_id == 'last':
-    end_id = len(glob.glob(peak_list_dir + '/*.txt')) - 1
-  else:
-    end_id = int(end_id)
-  pair_tol_str = argv['--pair-tol']
-  pair_tol_list = pair_tol_str.split(',')
-  pair_tol = np.asarray(pair_tol_list, dtype=np.float)
-  eval_tol = float(argv['--eval-tol'])
-  sort_by = argv['--sort-by']
-
-  # load configurations
-  config = yaml.load(open(config_file, 'r'))  
-  detector_distance = config['detector distance']
-  pixel_size = config['pixel size'] 
-  lattice_type = config['lattice type']
+  config_file = sys.argv[1]
+  # loading configurations
+  config = yaml.load(open(config_file))
   cell_parameters = np.asarray(config['cell parameters']) 
   cell_parameters[:3] *= 1E-10  # convert to meters
-  centering = config['centering']
-  centering_factor = config['centering factor']
+
+  detector_distance = config['detector distance']
+  pixel_size = config['pixel size'] 
+
   res_cutoff = config['resolution cutoff'] * 1.E10  # in angstrom
-  miller_set = None
+  lattice_type = config['lattice type']
+  centering = config['centering']
+  table_filepath = config['reference table']
+
+  peak_list_dir = config['peak list directory']
+  output_dir = config['output directory']
+  sort_by = config['sort by']
+  seed_pool_size = int(config['seed pool size'])
+  refine_cycles = int(config['refine cycles'])
+  seed_len_tol = float(config['seed length tolerance'])
+  seed_angle_tol = float(config['seed angle tolerance'])
+  seed_hkl_tol = float(config['seed hkl tolerance'])
+  centering_factor = float(config['centering factor'])
+  if config.has_key('first event'):
+    first_event = int(config['first event'])
+  else:
+    first_event = 0
+  if config.has_key('last event'):
+    last_event = int(config['last event'])
+  else:
+    last_event = len(glob.glob(peak_list_dir + '/*.txt')) - 1
+  eval_tol = float(config['eval tolerance'])
+  multi_index = config['multi index']
   if config.has_key('hkl constraint'):
     if config['hkl constraint'] is True:
-      print('Apply constraint on hkl using %s' % config['hkl file'])
-      miller_set = np.loadtxt(config['hkl file'])
+      hkl_file = config['hkl file']
+      if os.path.exists(hkl_file):
+        miller_set = np.loadtxt(config['hkl file'])
+      else:
+        print('ERROR! Must specify a hkl file if set hkl constraint to True!')
+        sys.exit()
 
   # calculate reference transform matrix
   A0 = calc_transform_matrix(cell_parameters,
@@ -420,16 +429,16 @@ if __name__ == '__main__':
         raise e
     logging.basicConfig(filename=os.path.join(
         output_dir, 'debug-%d.log' % rank),level=logging.DEBUG)
-    logging.info(str(argv))
+    logging.info(str(config))
     # assign jobs to slaves and master itself
-    nb_patterns = end_id - start_id + 1
+    nb_patterns = last_event - first_event + 1
     job_size = nb_patterns // size 
     jobs = []
     for i in range(size):
       if i == (size - 1):
-        job = np.arange(i*job_size+start_id, end_id+1)
+        job = np.arange(i*job_size+first_event, last_event+1)
       else:
-        job = np.arange(i*job_size+start_id, (i+1)*job_size+start_id)
+        job = np.arange(i*job_size+first_event, (i+1)*job_size+last_event)
       jobs.append(job)
       if i == 0:
         continue
@@ -450,7 +459,7 @@ if __name__ == '__main__':
   nb_indexed = 0
   indexed_events = []
   output = open(os.path.join(output_dir, 
-    'spind_indexing-%d.txt' % rank), 'w')
+    'spind_rank-%d.txt' % rank), 'w')
   for i in range(len(job)):
     event_id = job[i]
     filename = 'event-%d.txt' % event_id
@@ -461,70 +470,77 @@ if __name__ == '__main__':
       logging.info('Rank %d working on event %04d: %s' % 
         (rank, event_id, filepath))
       peaks = load_peaks(filepath, sort_by, res_cutoff)
-      results = index(
-        peaks, table, A0, A0_inv, pair_tol=pair_tol, eval_tol=eval_tol, 
-        refine_cycle=refine_cycle, centering=centering,
-        centering_factor=centering_factor, max_peaks=max_peaks,
-        miller_set=miller_set
+      solutions = index(
+        peaks, table, A0, A0_inv, 
+        seed_pool_size=seed_pool_size,
+        seed_len_tol=seed_len_tol, seed_angle_tol=seed_angle_tol,
+        seed_hkl_tol=seed_hkl_tol, eval_tol=eval_tol,
+        centering=centering, centering_factor=centering_factor, 
+        refine_cycles=refine_cycles,
+        miller_set=miller_set, multi_index=multi_index
       )
-      logging.info('Event %04d, match rate %.2f' % 
-        (event_id, results['match_rate']))
-      logging.info('A: %s' % str(results['A']))
-      if results['pair_dist_refined'] >= results['pair_dist']:
-        best_A = results['A'] 
-        best_dist = results['pair_dist']
-      else:
-        best_A = results['A_refined']
-        best_dist = results['pair_dist_refined']
-      # writing basic indexing result
-      output.write('%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
-             % (event_id, 
-              results['match_rate'], 
-              results['nb_pairs'], 
-              best_dist,
-              best_A[0,0], best_A[1,0], best_A[2,0],
-              best_A[0,1], best_A[1,1], best_A[2,1],
-              best_A[0,2], best_A[1,2], best_A[2,2],
-              results['pair_dist']))
-      # writing detailed indexing result
-      if results['hkls'] is not None:
+      for j in range(len(solutions)):
+        solution = solutions[j]
+        if solution.match_rate == 0.:
+          continue
+        # writing basic solution info
+        A = solution.A_refined
+        output.write('%6d %2d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E\n'
+               % (event_id, 
+                j+1,  # jth crystal
+                solution.match_rate, 
+                solution.nb_pairs, 
+                solution.pair_dist_refined,
+                A[0,0], A[1,0], A[2,0],
+                A[0,1], A[1,1], A[2,1],
+                A[0,2], A[1,2], A[2,2],
+                ))
+        # writing detailed indexing result
         match_flags = np.zeros((peaks.shape[0], 1))
-        match_flags[results['pair_ids']] = 1
-        detailed_info = np.hstack((peaks[:,:2], results['hkls'], match_flags))
+        match_flags[solution.pair_ids] = 1
+        detailed_info = np.hstack((peaks[:,:2], solution.hkls_refined, solution.ehkls_refined, match_flags))
         np.savetxt(os.path.join(output_dir, 
-          'spind_indexing-%d-%d.txt' % (rank, event_id)), 
-          detailed_info, fmt='%.9e %.9e %.3f %.3f %.3f %d')
-      if results['match_rate'] >= 0.5 and \
-         results['centering_score'] >= 0.5:
-        nb_indexed += 1
-        indexed_events.append(event_id)
-      print('=' * 40)
-      print('Event: %d' % job[i])
-      print('# of peaks: %d' % len(peaks))
-      print('match rate: %.3f' % results['match_rate'])
-      print('pair dist: %.3E' % results['pair_dist'])
-      print('refined pair dist: %.3E' % results['pair_dist_refined'])
-      print('centering score: %.2f' % results['centering_score'])
-      print('total score: %.2f' % results['score'])
-      print('=' * 40)
-    logging.info('Rank %d indexing rate: %.2f%%' % (rank, nb_indexed*100/(i+1)))
-  print('Rank %d: %d indexed with match rate > 0.5 and centering score > 0.5' % 
-    (rank, nb_indexed))
-  print('Indexed event: ', indexed_events)
+          'spind_event-%d_crystal-%d.txt' % (event_id, j+1)), 
+          detailed_info, fmt='%.9e %.9e %.3f %.3f %.3f %.3f %.3f %.3f %d')  
+
+        if solution.match_rate >= 0.5:
+          nb_indexed += 1
+          indexed_events.append(event_id) 
+
+        print('=' * 40)
+        print('event id: %d' % job[i])
+        print('crystal id: %d' % (j+1))
+        print('total peaks: %d' % len(peaks))
+        print('matched peaks: %d' % solution.nb_pairs)
+        print('match rate: %.4f' % solution.match_rate)
+        print('pair dist: %.3E' % solution.pair_dist)
+        print('refined pair dist: %.3E' % solution.pair_dist_refined)
+        print('centering score: %.4f' % solution.centering_score)
+        print('total score: %.4f' % solution.total_score)
+        print('seed error: %.4f' % solution.seed_error)
+        print('total error: %.4f' % solution.total_error)
+        print('=' * 40)
+
+      logging.info('Rank %d indexing rate: %.2f%%' % (rank, nb_indexed*100./(i+1)))
+  print('Rank %d: %d indexed with match rate > 0.5 and centering score > 0.5' % (rank, nb_indexed))
+  print('Indexed event %d', indexed_events)
   output.close()
 
   comm.barrier()
-  # merge indexing results to single txt file
+  # merge indexing results to a single txt file
   if rank == 0:
     data = np.array([])
     for i in range(size):
       if i == 0:
-        data = np.loadtxt(os.path.join(output_dir, 'spind_indexing-0.txt'))
+        data = np.loadtxt(os.path.join(output_dir, 'spind_rank-0.txt'))
       else:
         data = np.concatenate((data, np.loadtxt(os.path.join(output_dir, 
-            'spind_indexing-%d.txt' % i))), axis=0)
+            'spind_rank-%d.txt' % i))), axis=0)
     data = data.reshape((-1, 14))
     np.savetxt(os.path.join(output_dir, 'spind.txt'),
-           data[:,0:-1], fmt="%6d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
-    overall_indexing_rate = float((data[:,1] > 0.5).sum()) / float(data.shape[0]) * 100.
+           data, fmt="%6d %2d %.2f %4d %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E %.4E")
+    if data.shape[0] == 0:
+      overall_indexing_rate = 0.
+    else:
+      overall_indexing_rate = float((data[:,2] > 0.5).sum()) / float(data.shape[0]) * 100.
     print('Overall indexing rate: %.2f%%' % overall_indexing_rate)
