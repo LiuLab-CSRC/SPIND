@@ -1,14 +1,4 @@
-#!/usr/bin/env python
-#! coding=utf-8
-
-"""
-Usage: 
-  generate_table.py <config.yml> [options]
-
-Options:
-  -h --help             Show this screen.
-  -o table_file         Output table [default: spind_table.h5].
-"""
+import sys
 
 import numpy as np 
 from math import acos, pi, cos, sin
@@ -16,7 +6,6 @@ from numpy.linalg import norm
 import h5py
 import itertools
 
-from docopt import docopt
 import yaml
 from tqdm import tqdm
 
@@ -70,17 +59,13 @@ def calc_angle(v1, v2):
 
 
 if __name__ == '__main__':
-  # parse command options
-  argv = docopt(__doc__)
-  config_file = argv['<config.yml>']
-  table_file = argv['-o']
-  print('Loading configuration from =%s=' %
-    config_file)
-  print('Reference table saved to =%s=' %
-    table_file)
+  # parse configurations
+  config_file = sys.argv[1]
+  config = yaml.load(open(config_file))
+  table_file = config['reference table']
+  print('Loading configuration from %s' % config_file)
+  print('Reference table saved to %s' % table_file)
 
-  # load configurations
-  config = yaml.load(open(config_file, 'r'))  
   res_cutoff = config['resolution cutoff']
   lattice_type = config['lattice type']
   cell_param = np.asarray(config['cell parameters'])
@@ -130,17 +115,16 @@ if __name__ == '__main__':
     # apply systematic absence
     if centering == 'I':  # h+k+l == 2n
       valid_idx = (hkls.sum(axis=1) % 2 == 0)
+    elif centering == 'A':  # k+l == 2n
+      valid_idx = ((hkls[:,1] + hkls[:,2]) % 2 == 0)
+    elif centering == 'B':  # h+l == 2n
+      valid_idx = ((hkls[:,0] + hkls[:,2]) % 2 == 0)
     elif centering == 'C':  # h+k == 2n
       valid_idx = ((hkls[:,0] + hkls[:,1]) % 2 == 0)
-    elif centering == 'A':  # h+k == 2n
-      valid_idx = ((hkls[:,1] + hkls[:,2]) % 2 == 0)
-    elif centering == 'B':  # h+k == 2n
-      valid_idx = ((hkls[:,0] + hkls[:,2]) % 2 == 0)
     elif centering == 'P':
       valid_idx = np.ones(hkls.shape[0]) > 0  # all true
     else:
-      raise NotImplementedError('%s not implemented' %
-        centering)
+      raise NotImplementedError('%s not implemented' % centering)
     hkls = hkls[valid_idx]  
   else:  # load 1/8 hkls from file
     hkl = np.loadtxt(hkl_file, dtype=np.int16)
