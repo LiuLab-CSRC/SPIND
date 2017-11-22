@@ -1,6 +1,6 @@
 # SPIND Manual
 
-SPIND can work in two modes: CrystalFEL-plugin or stand-alone mode, to extract peaks, index pattern and merge intensity.
+SPIND can work in two modes: CrystFEL-plugin or stand-alone mode, to extract peaks, index pattern and merge intensity.
 
 ## CrystFEL-plugin mode
 
