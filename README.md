@@ -45,3 +45,5 @@ Finally, install SPIND dependencies using
 `conda install mpi4py yaml docopt`
 
 Installation is done! Congratulations!
+
+Visit [https://liulab-csrc.github.io/SPIND/](https://liulab-csrc.github.io/SPIND/) for usage.
