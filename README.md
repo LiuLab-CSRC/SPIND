@@ -23,7 +23,6 @@ SPIND package has the following dependencies,
 * h5py
 * mpi4py
 * yaml
-* docopt
 
 To make life easier, [anaconda](https://anaconda.org) is highly recommended for Python-related library management. 
 
