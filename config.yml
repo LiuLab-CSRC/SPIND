@@ -1,6 +1,31 @@
-resolution cutoff: 4.5E-10  # 2.5A cutoff
+# lattice information
 cell parameters: [103.45,50.28,69.380,90.00,109.67,90.00]  # in A and degree
-centering: 'C'  # C type centering
+
+# exp. parameters
 wave length : 1.306098E-10  # in meters
 detector distance : 136.4028E-3  # in meters
 pixel size : 110.E-6  # in meters
+
+# reference generation parameters
+resolution cutoff: 4.5E-10  #  highest resolution for reference, in meters
+lattice type: "monoclinic"  # support monoclinic, orthorhombic
+centering: "C"  # centering type, optional, support I, A, B, C, P
+reference table: "spind_reference.h5"  # table filename
+
+# indexing parameters
+peak list directory: "peak_list"  
+output directory: "output" 
+sort by: "snr"  # peak list sort method, support snr, intensity
+seed pool size: 5  # generate seed from this pool. 5 is good for SFX
+refine cycles: 10  # refine indexing solution 
+seed length tolerance: 3.E+7  # in m^-1, depends on sample and exp. setup
+seed angle tolerance: 1.0  # in degrees
+seed hkl tolerance: 0.1  # seed hkl tolerence
+centering factor: 0.2  # centering weighting factor
+eval tolerance: 0.25  # pair peak criterion
+multi index: False  # try to index multiple crystal for single pattern?
+# first event: 0  # first event for indeixng, optional
+# last event: 100  # last event for indexing, optional
+
+hkl file: None  # txt file including all possiable miller indices, optional
+hkl constraint: True  # if apply strict hkl constraint, users must specify a hkl file.
