@@ -6,57 +6,59 @@ import sys
 import itertools
 
 
-basic_index = sys.argv[1]
-event_id = int(sys.argv[2])
-detailed_index = sys.argv[3]
+spind_file = sys.argv[1]
+peak_file = sys.argv[2]
+event_id = int(sys.argv[3])
 crystal_id = int(sys.argv[4])
+hkl_tol = float(sys.argv[5])
 
-f1 = np.loadtxt(basic_index)
-f2 = np.loadtxt(detailed_index)
-hkls = np.rint(f2[np.where(f2[:,-1]==1.)[0],2:5]).astype(np.int).tolist()
-hkls.sort()
-unique_hkl = list(hkl for hkl,_ in itertools.groupby(hkls))
-print('%d unique reflections found' % len(unique_hkl))
+solutions = np.loadtxt(spind_file)
+solution = solutions[np.where((solutions[:,0] == event_id) * (solutions[:,1] == crystal_id))].reshape((14))
+peaks = np.loadtxt(peak_file)
+qs = peaks[:,4:7]
 
-crystal_rows = np.where(f1[:,0].astype(np.int) == event_id)[0]
-crystal_row = np.where(f1[crystal_rows,1].astype(np.int) == crystal_id)[0][0]
-A = np.zeros((3,3))
-A[:,0] = f1[crystal_row,5:8]
-A[:,1] = f1[crystal_row,8:11]
-A[:,2] = f1[crystal_row,11:14]
+A  = np.zeros((3,3))
+A[:,0] = solution[5:8]
+A[:,1] = solution[8:11]
+A[:,2] = solution[11:14]
 
+A_inv = np.linalg.inv(A)
+hkls = A_inv.dot(qs.T).T
+rhkls = np.rint(hkls)
+ehkls = np.abs(hkls - rhkls)
+pair_ids = np.where(np.max(ehkls, axis=1) < hkl_tol)[0]
+print('%d pair peaks found: %s' % (len(pair_ids), str(pair_ids)))
 
 pixel_size = 100E-6  # 100um pixel
 det_dist = 5.109575
 lamb = 0.0223904E-10 
-peaks_xy = f2[:, :2] / pixel_size
+peaks_xy = peaks[:, :2] / pixel_size
 
 fig = plt.figure('Simple Viewer')
 ax = fig.add_subplot(111)
 plt.scatter(peaks_xy[:,0], peaks_xy[:,1], marker='o', s=10, label='peaks')
 plt.axis('equal')
 
-match_ids = np.where(f2[:,-1] == 1.)[0]
 exp_spots = []
 pred_spots = []
-for i in match_ids:
+for i in pair_ids:
     peak = peaks_xy[i]
-    hkl = f2[i,2:5]
+    hkl = hkls[i]
     rhkl = np.rint(hkl)
-    q = A.dot(rhkl)
-    q_xy = sqrt(q[0] ** 2 + q[1] ** 2)
-    q_len = norm(q)
-    det_r = det_dist * tan(2. * asin(q_len * lamb * 0.5))
-    det_x = det_r * q[0] / q_xy / pixel_size
-    det_y = det_r * q[1] / q_xy / pixel_size
+    pred_q = A.dot(rhkl)
+    pred_qxy = sqrt(pred_q[0] ** 2 + pred_q[1] ** 2)
+    pred_qlen = norm(pred_q)
+    pred_detr = det_dist * tan(2. * asin(pred_qlen * lamb * 0.5))
+    pred_detx = pred_detr * pred_q[0] / pred_qxy / pixel_size
+    pred_dety = pred_detr * pred_q[1] / pred_qxy / pixel_size
     exp_spot = [peak[0], peak[1]]
-    pred_spot = [det_x, det_y]
+    pred_spot = [pred_detx, pred_dety]
     exp_spots.append(exp_spot)
     pred_spots.append(pred_spot)
     ax.annotate('%.2f %.2f %.2f' % (hkl[0], hkl[1], hkl[2]), 
-        xy=(det_x, det_y), xytext=(peak[0], peak[1]))
-    ax.annotate('%d %d %d' % (rhkl[0], rhkl[1], rhkl[2]), 
-        xy=(det_x, det_y), xytext=(det_x, det_y))
+        xy=(pred_detx, pred_dety), xytext=(peak[0], peak[1]))
+    # ax.annotate('%d %d %d' % (rhkl[0], rhkl[1], rhkl[2]), 
+    #     xy=(pred_detx, pred_dety), xytext=(pred_detx, pred_dety))
 
 exp_spots = np.array(exp_spots)
 pred_spots = np.array(pred_spots)
