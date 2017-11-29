@@ -23,6 +23,7 @@ SPIND package has the following dependencies,
 * h5py
 * mpi4py
 * yaml
+* tqdm
 
 To make life easier, [anaconda](https://anaconda.org) is highly recommended for Python-related library management. 
 
@@ -42,7 +43,7 @@ Then `source ~/.bashrc`.
 
 Finally, install SPIND dependencies using
 
-`conda install mpi4py yaml docopt`
+`conda install mpi4py yaml docopt tqdm`
 
 Installation is done! Congratulations!
 
