@@ -53,3 +53,5 @@ Visit [https://liulab-csrc.github.io/SPIND/](https://liulab-csrc.github.io/SPIND
 
 ### Todo
 - [ ] resolution shell
+- [ ] SFX tutorial
+- [ ] multi-crystal diffraction tutorial
