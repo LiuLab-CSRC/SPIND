@@ -71,9 +71,6 @@ if __name__ == '__main__':
   cell_param = np.asarray(config['cell parameters'])
   cell_param[:3] *= 1E-10  # convert to meters
   centering = config['centering']
-  wave_len = config['wave length']
-  det_dist = config['detector distance']
-  pixel_size = config['pixel size'] 
   if config.has_key('hkl file'):
     hkl_file = config['hkl file']
     print('Generating reference table from hkl file: %s' %
