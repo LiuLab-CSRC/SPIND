@@ -27,5 +27,5 @@ multi index: False  # try to index multiple crystal for single pattern?
 # first event: 0  # first event for indeixng, optional
 # last event: 100  # last event for indexing, optional
 
-hkl file: None  # txt file including all possiable miller indices, optional
-hkl constraint: True  # if apply strict hkl constraint, users must specify a hkl file.
+hkl constraint: False  # if apply strict hkl constraint, users must specify a hkl file.
+# hkl file: "sample.hkl"  # txt file including all possiable miller indices, optional
