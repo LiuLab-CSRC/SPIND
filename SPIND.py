@@ -399,6 +399,7 @@ if __name__ == '__main__':
     last_event = len(glob.glob(peak_list_dir + '/*.txt')) - 1
   eval_tol = float(config['eval tolerance'])
   multi_index = config['multi index']
+  miller_set = None
   if config.has_key('hkl constraint'):
     if config['hkl constraint'] is True:
       hkl_file = config['hkl file']
@@ -438,7 +439,7 @@ if __name__ == '__main__':
       if i == (size - 1):
         job = np.arange(i*job_size+first_event, last_event+1)
       else:
-        job = np.arange(i*job_size+first_event, (i+1)*job_size+last_event)
+        job = np.arange(i*job_size+first_event, (i+1)*job_size+first_event)
       jobs.append(job)
       if i == 0:
         continue
