@@ -1,3 +1,15 @@
+#!/usr/bin/env python
+
+"""
+Usage:
+    SPIND.py <config.yml> [options]
+
+Options:
+    -h --help                                       Show this screen.
+    --peak-list-dir=peak_list_dir                   Peak list directory.
+    --output-dir=output_dir                         Output directory.
+"""
+
 import yaml
 import logging
 from mpi4py import MPI
@@ -371,9 +383,6 @@ if __name__ == '__main__':
   config = yaml.load(open(config_file))
   cell_parameters = np.asarray(config['cell parameters']) 
   cell_parameters[:3] *= 1E-10  # convert to meters
-
-  detector_distance = config['detector distance']
-  pixel_size = config['pixel size'] 
 
   res_cutoff = config['resolution cutoff'] * 1.E10  # in angstrom
   lattice_type = config['lattice type']
