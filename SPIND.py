@@ -532,8 +532,8 @@ if __name__ == '__main__':
         print('=' * 40)
 
       logging.info('Rank %d indexing rate: %.2f%%' % (rank, nb_indexed*100./(i+1)))
-  print('Rank %d: %d indexed with match rate > 0.5 and centering score > 0.5' % (rank, nb_indexed))
-  print('Indexed event %d', indexed_events)
+  print('Rank %d: %d indexed with match rate > 0.5' % (rank, nb_indexed))
+  print('%d indexed events:' % len(indexed_events), indexed_events)
   output.close()
 
   comm.barrier()
