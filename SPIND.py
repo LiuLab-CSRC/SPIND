@@ -11,21 +11,26 @@ Options:
 """
 
 import yaml
+from docopt import docopt
+
 import logging
-from mpi4py import MPI
 import os
 import sys
 import glob
+
+from mpi4py import MPI
 try:
   import mkl
   mkl.set_num_threads(1)
 except:
   pass
+
 import numpy as np
 import h5py
 from math import acos, pi, cos, sin
 from numpy.linalg import norm
 from scipy.optimize import fmin_cg
+
 from itertools import combinations
 from tqdm import tqdm
 
@@ -378,7 +383,9 @@ def refine(solution, qs, refine_cycle):
 
 
 if __name__ == '__main__':
-  config_file = sys.argv[1]
+  argv = docopt(__doc__)
+  config_file = argv['<config.yml>']
+
   # loading configurations
   config = yaml.load(open(config_file))
   cell_parameters = np.asarray(config['cell parameters']) 
@@ -389,8 +396,16 @@ if __name__ == '__main__':
   centering = config['centering']
   table_filepath = config['reference table']
 
-  peak_list_dir = config['peak list directory']
-  output_dir = config['output directory']
+  if argv['--peak-list-dir'] is None:
+    peak_list_dir = config['peak list directory']
+  else:
+    peak_list_dir = argv['--peak-list-dir']
+
+  if argv['--output-dir'] is None:
+    output_dir = config['output directory']
+  else:
+    output_dir = argv['--output-dir']
+    
   sort_by = config['sort by']
   seed_pool_size = int(config['seed pool size'])
   refine_cycles = int(config['refine cycles'])
