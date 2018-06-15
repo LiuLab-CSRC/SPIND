@@ -1,3 +1,29 @@
+# Copyright © 2018 Liu Lab, Beijing Computational Science Research Center <http://liulab.csrc.ac.cn>
+
+# Authors:
+#   2017-2018      Xuanxuan Li <lxx2011011580@gmail.com>
+#   2017-2018      Chufeng Li <chufengl@asu.edu>
+#   2017      Richard Kirian <rkirian@asu.edu>
+#   2017      Nadia Zatsepin <Nadia.Zatsepin@asu.edu>
+#   2017      John Spence <spence@asu.edu>
+#   2017      Haiguang Liu <hgliu@csrc.ac.cn>
+
+# This file is part of SPIND.
+
+# SPIND is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# SPIND is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with SPIND.  If not, see <http://www.gnu.org/licenses/>.
+
+
 import numpy as np 
 from numpy.linalg import norm
 import matplotlib.pyplot as plt 
@@ -36,7 +62,7 @@ peaks_xy = peaks[:, :2] / pixel_size
 
 fig = plt.figure('Simple Viewer')
 ax = fig.add_subplot(111)
-plt.scatter(peaks_xy[:,0], peaks_xy[:,1], marker='o', s=10, label='peaks')
+plt.scatter(peaks_xy[:,0], peaks_xy[:,1], marker='o', s=3, label='peaks')
 plt.axis('equal')
 
 exp_spots = []
@@ -55,14 +81,16 @@ for i in pair_ids:
     pred_spot = [pred_detx, pred_dety]
     exp_spots.append(exp_spot)
     pred_spots.append(pred_spot)
-    ax.annotate('%.2f %.2f %.2f' % (hkl[0], hkl[1], hkl[2]), 
+    ax.annotate('%d %d %d' % (hkl[0], hkl[1], hkl[2]), 
         xy=(pred_detx, pred_dety), xytext=(peak[0], peak[1]))
     # ax.annotate('%d %d %d' % (rhkl[0], rhkl[1], rhkl[2]), 
     #     xy=(pred_detx, pred_dety), xytext=(pred_detx, pred_dety))
 
 exp_spots = np.array(exp_spots)
 pred_spots = np.array(pred_spots)
-plt.scatter(exp_spots[:,0], exp_spots[:,1], marker='x', s=50, c='r', label='Exp. spot')
-plt.scatter(pred_spots[:,0], pred_spots[:,1], marker='+', s=50, c='g', label='Pred. spot')
-plt.legend()
+plt.scatter(exp_spots[:,0], exp_spots[:,1], marker='x', s=40, c='r', label='Exp. spot')
+plt.scatter(pred_spots[:,0], pred_spots[:,1], marker='+', s=40, c='g', label='Pred. spot')
+plt.legend(loc=2)
+plt.xlabel('x/pixel')
+plt.ylabel('y/pixel')
 plt.show()

@@ -1,3 +1,29 @@
+# Copyright © 2018 Liu Lab, Beijing Computational Science Research Center <http://liulab.csrc.ac.cn>
+
+# Authors:
+#   2017-2018      Xuanxuan Li <lxx2011011580@gmail.com>
+#   2017-2018      Chufeng Li <chufengl@asu.edu>
+#   2017      Richard Kirian <rkirian@asu.edu>
+#   2017      Nadia Zatsepin <Nadia.Zatsepin@asu.edu>
+#   2017      John Spence <spence@asu.edu>
+#   2017      Haiguang Liu <hgliu@csrc.ac.cn>
+
+# This file is part of SPIND.
+
+# SPIND is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# SPIND is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with SPIND.  If not, see <http://www.gnu.org/licenses/>.
+
+
 import sys
 
 import numpy as np 
