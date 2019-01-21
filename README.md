@@ -56,3 +56,16 @@ Visit [https://liulab-csrc.github.io/SPIND/](https://liulab-csrc.github.io/SPIND
 - [ ] SFX tutorial
 - [ ] integrate SPIND in official CrystFEL
 - [ ] multi-crystal diffraction tutorial
+
+### Citation for SPIND
+```
+@article{li2019spind,
+  title={SPIND: a reference-based auto-indexing algorithm for sparse serial crystallography data},
+  author={Li, Chufeng and Li, Xuanxuan and Kirian, Richard and Spence, John CH and Liu, Haiguang and Zatsepin, Nadia A},
+  journal={IUCrJ},
+  volume={6},
+  number={1},
+  year={2019},
+  publisher={International Union of Crystallography}
+}
+```
