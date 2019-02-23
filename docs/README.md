@@ -69,3 +69,12 @@ First we need convert SPIND indexing solution into stream files.
 Users can also add other options of `indexamajig`, see details [here](http://www.desy.de/~twhite/crystfel/manual-indexamajig.html)
 
 When the stream files ready, users can use CrystFEL programs for visualization, merging...
+
+## Authors & Contributors:
+
+* Chufeng Li(Proposer) <chufengl@asu.edu>
+* Xuanxuan Li(Developer) <lxx2011011580@gmail.com>
+* Richard Kirian <rkirian@asu.edu>
+* Nadia Zatsepin <Nadia.Zatsepin@asu.edu>
+* John Spence <spence@asu.edu>
+* Haiguang Liu <hgliu@csrc.ac.cn>
