@@ -1,5 +1,13 @@
 # Sparse Pattern INDexing toolkit
 
+## Authors & Contributors:
+
+* Chufeng Li(Proposer) <chufengl@asu.edu>
+* Xuanxuan Li(Developer) <lxx2011011580@gmail.com>
+* Richard Kirian <rkirian@asu.edu>
+* Nadia Zatsepin <Nadia.Zatsepin@asu.edu>
+* John Spence <spence@asu.edu>
+* Haiguang Liu <hgliu@csrc.ac.cn>
 
 ## Installation
 First, install some necessary tools. For CentOS users, just use the following command,
